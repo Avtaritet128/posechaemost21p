@@ -417,56 +417,8 @@ const GH_CONFIG = {
     let attendanceData = {};
     let subjectTexts = {};
     let dateTexts = {};
-    
-    const STORAGE_KEY = 'attendance_mobile_v3_static';
-    
-    function getShortName(full) { let p = full.split(/\s+/); return p.length >= 2 ? `${p[0]} ${p[1]}` : full; }
-    
-    function saveToLocalStorage() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-            attendance: attendanceData,
-            subjectTexts: subjectTexts,
-            dateTexts: dateTexts
-        }));
-    }
-    
-    function loadFromLocalStorage() {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (!saved) return false;
-        try {
-            const data = JSON.parse(saved);
-            attendanceData = data.attendance || {};
-            subjectTexts = data.subjectTexts || {};
-            dateTexts = data.dateTexts || {};
-            return true;
-        } catch(e) { return false; }
-    }
-    
-    function initData() {
-        if (!loadFromLocalStorage()) {
-            for (let day of DAYS) {
-                attendanceData[day] = {};
-                subjectTexts[day] = { 0: "", 1: "", 2: "", 3: "" };
-                dateTexts[day] = { 0: "", 1: "", 2: "", 3: "" };
-                for (let student of STUDENTS_FULL) {
-                    attendanceData[day][student] = [false, false, false, false];
-                }
-            }
-            saveToLocalStorage();
-        }
-        for (let day of DAYS) {
-            if (!attendanceData[day]) attendanceData[day] = {};
-            if (!subjectTexts[day]) subjectTexts[day] = { 0: "", 1: "", 2: "", 3: "" };
-            if (!dateTexts[day]) dateTexts[day] = { 0: "", 1: "", 2: "", 3: "" };
-            for (let student of STUDENTS_FULL) {
-                if (!attendanceData[day][student]) attendanceData[day][student] = [false, false, false, false];
-            }
-            for (let i = 0; i < SUBJECTS_COUNT; i++) {
-                if (subjectTexts[day][i] === undefined) subjectTexts[day][i] = "";
-                if (dateTexts[day][i] === undefined) dateTexts[day][i] = "";
-            }
-        }
-    }
+
+            let fileSha = null;
     
     function getCurrentAttendance() { return attendanceData[currentDay]; }
     function getCurrentSubjectTexts() { return subjectTexts[currentDay]; }
@@ -474,19 +426,19 @@ const GH_CONFIG = {
     
     function updateAttendance(studentName, subjectIdx, isPresent) {
         attendanceData[currentDay][studentName][subjectIdx] = isPresent;
-        saveToLocalStorage();
+        scheduleSave();
         renderAll();
     }
     
     function updateSubjectText(subjectIdx, value) {
         subjectTexts[currentDay][subjectIdx] = value;
-        saveToLocalStorage();
+        scheduleSave();
         renderAll();
     }
     
     function updateDateText(subjectIdx, value) {
         dateTexts[currentDay][subjectIdx] = value;
-        saveToLocalStorage();
+        scheduleSave();
         renderAll();
     }
     
@@ -495,7 +447,7 @@ const GH_CONFIG = {
         for (let student of STUDENTS_FULL) {
             attendanceData[currentDay][student] = [false, false, false, false];
         }
-        saveToLocalStorage();
+        scheduleSave();
         renderAll();
     }
     
@@ -508,7 +460,7 @@ const GH_CONFIG = {
             subjectTexts[day] = { 0: "", 1: "", 2: "", 3: "" };
             dateTexts[day] = { 0: "", 1: "", 2: "", 3: "" };
         }
-        saveToLocalStorage();
+        scheduleSave();
         renderAll();
     }
     
@@ -544,7 +496,143 @@ const GH_CONFIG = {
     }
     
     // ========== UI РЕНДЕРИНГ ==========
-    
+
+            // ==================== ИНДИКАТОР ====================
+    function setSyncStatus(text, color = '#2c5a7a') {
+        let el = document.getElementById('syncStatus');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'syncStatus';
+            el.style.cssText = 'position:fixed;bottom:10px;right:10px;background:white;border:1px solid #cbd5e1;padding:6px 12px;border-radius:40px;font-size:0.7rem;box-shadow:0 2px 8px rgba(0,0,0,0.1);z-index:9999;';
+            document.body.appendChild(el);
+        }
+        el.textContent = text;
+        el.style.color = color;
+    }
+
+    // ==================== GITHUB API ====================
+    async function ghLoad() {
+        const url = `https://api.github.com/repos/${GH_CONFIG.owner}/${GH_CONFIG.repo}/contents/${GH_CONFIG.path}?ref=${GH_CONFIG.branch}&t=${Date.now()}`;
+        const res = await fetch(url, {
+            headers: { 'Authorization': `token ${GH_CONFIG.token}`, 'Accept': 'application/vnd.github.v3+json' },
+            cache: 'no-store'
+        });
+        if (res.status === 404) return { data: null, sha: null };
+        if (!res.ok) throw new Error('GitHub load error: ' + res.status);
+        const json = await res.json();
+        const content = decodeURIComponent(escape(atob(json.content.replace(/\n/g, ''))));
+        return { data: JSON.parse(content), sha: json.sha };
+    }
+
+    async function ghSave() {
+        const payload = { attendance: attendanceData, subjectTexts, dateTexts };
+        const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
+        const url = `https://api.github.com/repos/${GH_CONFIG.owner}/${GH_CONFIG.repo}/contents/${GH_CONFIG.path}`;
+        const body = { message: `Обновление — ${new Date().toISOString()}`, content, branch: GH_CONFIG.branch };
+        if (fileSha) body.sha = fileSha;
+        const res = await fetch(url, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `token ${GH_CONFIG.token}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error('GitHub save error: ' + res.status);
+        const json = await res.json();
+        fileSha = json.content.sha;
+    }
+
+    let saveTimeout = null;
+    function scheduleSave() {
+        setSyncStatus('⏳ Сохранение…', '#a07c2e');
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(async () => {
+            try {
+                await ghSave();
+                setSyncStatus('✅ Сохранено', '#15803d');
+                setTimeout(() => setSyncStatus('☁️ Синхронизировано'), 1500);
+            } catch (e) {
+                console.error(e);
+                setSyncStatus('❌ Ошибка сохранения', '#b91c1c');
+            } finally {
+                saveTimeout = null;
+            }
+        }, 700);
+    }
+
+    function emptyDay() {
+        const d = {};
+        for (const s of STUDENTS_FULL) d[s] = [false, false, false, false];
+        return d;
+    }
+
+    function normalizeData() {
+        for (const day of DAYS) {
+            if (!attendanceData[day]) attendanceData[day] = {};
+            if (!subjectTexts[day]) subjectTexts[day] = {0:'',1:'',2:'',3:''};
+            if (!dateTexts[day]) dateTexts[day] = {0:'',1:'',2:'',3:''};
+            for (const s of STUDENTS_FULL) {
+                if (!Array.isArray(attendanceData[day][s])) attendanceData[day][s] = [false,false,false,false];
+            }
+            for (let i = 0; i < SUBJECTS_COUNT; i++) {
+                if (subjectTexts[day][i] === undefined) subjectTexts[day][i] = '';
+                if (dateTexts[day][i] === undefined) dateTexts[day][i] = '';
+            }
+        }
+    }
+
+    async function initData() {
+        setSyncStatus('⏳ Загрузка…', '#a07c2e');
+        try {
+            const { data, sha } = await ghLoad();
+            fileSha = sha;
+            if (data && data.attendance) {
+                attendanceData = data.attendance;
+                subjectTexts = data.subjectTexts || {};
+                dateTexts = data.dateTexts || {};
+            } else {
+                for (const day of DAYS) {
+                    attendanceData[day] = emptyDay();
+                    subjectTexts[day] = {0:'',1:'',2:'',3:''};
+                    dateTexts[day] = {0:'',1:'',2:'',3:''};
+                }
+            }
+            normalizeData();
+            setSyncStatus('✅ Загружено', '#15803d');
+            setTimeout(() => setSyncStatus('☁️ Синхронизировано'), 1500);
+        } catch (e) {
+            console.error(e);
+            setSyncStatus('❌ Ошибка загрузки', '#b91c1c');
+            for (const day of DAYS) {
+                attendanceData[day] = emptyDay();
+                subjectTexts[day] = {0:'',1:'',2:'',3:''};
+                dateTexts[day] = {0:'',1:'',2:'',3:''};
+            }
+        }
+        renderWeekdays();
+        renderAll();
+    }
+
+    // ==================== АВТООБНОВЛЕНИЕ ====================
+    async function pollForUpdates() {
+        if (saveTimeout) return;
+        try {
+            const { data, sha } = await ghLoad();
+            if (sha && sha !== fileSha && data) {
+                fileSha = sha;
+                attendanceData = data.attendance || attendanceData;
+                subjectTexts = data.subjectTexts || subjectTexts;
+                dateTexts = data.dateTexts || dateTexts;
+                normalizeData();
+                renderAll();
+                setSyncStatus('🔄 Обновлено', '#2c5a7a');
+                setTimeout(() => setSyncStatus('☁️ Синхронизировано'), 1500);
+            }
+        } catch (e) {}
+    }
+        
     function renderWeekdays() {
         const bar = document.getElementById('weekdaysBar');
         bar.innerHTML = '';
@@ -721,13 +809,15 @@ const GH_CONFIG = {
     
     function escapeHtml(str) { return String(str).replace(/[&<>]/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;' }[m])); }
     
-    // ИНИЦИАЛИЗАЦИЯ
-    initData();
-    renderWeekdays();
-    renderAll();
-    
+     // ИНИЦИАЛИЗАЦИЯ
     document.getElementById('resetDayBtn').onclick = resetCurrentDay;
     document.getElementById('clearAllBtn').onclick = clearAllData;
+
+    initData().then(() => {
+        setInterval(pollForUpdates, 20000);
+        window.addEventListener('focus', pollForUpdates);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) pollForUpdates(); });
+    });
 </script>
 </body>
 </html>
