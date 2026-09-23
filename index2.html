@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
+    <title>Журнал посещаемости</title>
+    <style>
+        * { box-sizing: border-box; font-family: system-ui, -apple-system, 'Segoe UI', 'Roboto', sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { background: #eef2f8; margin: 0; padding: 12px; min-height: 100vh; }
+        .main-dashboard { max-width: 600px; margin: 0 auto; background: white; border-radius: 28px; box-shadow: 0 8px 20px rgba(0,0,0,0.08); overflow: hidden; }
+        .journal-header { background: #0f2b3d; padding: 1rem 1.2rem; color: white; }
+        .journal-header h1 { margin: 0; font-size: 1.4rem; font-weight: 650; }
+        .journal-header p { margin: 0.3rem 0 0; opacity: 0.8; font-size: 0.7rem; }
+        .weekdays-bar { background: #f8fafc; padding: 0.8rem; display: flex; gap: 8px; overflow-x: auto; white-space: nowrap; border-bottom: 1px solid #e4e9f0; }
+        .day-btn { background: #f1f5f9; border: 1px solid #cbd5e6; padding: 8px 18px; border-radius: 40px; font-weight: 600; font-size: 0.85rem; cursor: pointer; flex-shrink: 0; }
+        .day-btn.active { background: #1f3b4c; color: white; border-color: #1f3b4c; }
+        .action-buttons { display: flex; gap: 8px; padding: 0.8rem; background: #ffffff; border-bottom: 1px solid #e4e9f0; }
+        .reset-btn, .clear-btn { flex: 1; background: #f1f5f9; border: 1px solid #cbd5e6; padding: 10px; border-radius: 40px; font-weight: 500; font-size: 0.8rem; cursor: pointer; text-align: center; }
+        .clear-btn { background: #fff1f0; border-color: #fbc4c1; color: #b13e3e; }
+        .summary-block { background: #fef9e6; border: 1px solid #ffe5b4; border-radius: 20px; padding: 0.7rem; margin: 0.8rem; }
+        .summary-header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; border-bottom: 2px solid #ffdd99; padding-bottom: 6px; }
+        .summary-header h3 { margin: 0; font-size: 0.85rem; font-weight: 700; color: #8a6e2f; }
+        .summary-date { font-size: 0.7rem; background: #ffefcf; padding: 3px 10px; border-radius: 40px; color: #a07c2e; }
+        .summary-count { background: #ffefcf; padding: 3px 10px; border-radius: 40px; font-size: 0.7rem; font-weight: 600; color: #a07c2e; }
+        .summary-list { display: flex; flex-wrap: wrap; gap: 6px; }
+        .summary-tag { background: #fff5e0; border: 1px solid #ffdb9e; padding: 5px 12px; border-radius: 40px; font-size: 0.75rem; font-weight: 500; color: #5e4a1e; }
+        .empty-summary { color: #b88b3a; font-style: italic; font-size: 0.75rem; padding: 8px; text-align: center; width: 100%; }
+        .summary-block.never-block { background: #fef2f0; border-color: #ffcdc5; }
+        .summary-block.never-block .summary-header { border-bottom-color: #ffb8ae; }
+        .summary-block.never-block .summary-header h3 { color: #b13e3e; }
+        .summary-block.never-block .summary-count { background: #ffe0db; color: #b13e3e; }
+        .summary-block.never-block .summary-tag { background: #ffe6e5; border-color: #fcc4c1; color: #b13e3e; }
+        .students-list { padding: 0.8rem; display: flex; flex-direction: column; gap: 12px; }
+        .student-card { background: white; border-radius: 20px; border: 1px solid #e9edf2; padding: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.03); }
+        .student-name { font-weight: 700; font-size: 1rem; color: #0a1c2f; padding-bottom: 8px; border-bottom: 1px solid #eef2f8; margin-bottom: 8px; }
+        .subjects-row { display: flex; flex-direction: column; gap: 10px; }
+        .subject-item { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 4px 0; }
+        .subject-label { font-size: 0.7rem; font-weight: 600; color: #2c5a7a; background: #eef2ff; padding: 4px 10px; border-radius: 30px; min-width: 95px; text-align: center; }
+        .status-badge { display: inline-block; padding: 5px 12px; border-radius: 32px; font-size: 0.7rem; font-weight: 600; min-width: 105px; text-align: center; }
+        .status-present { background: #dcfce7; color: #15803d; }
+        .status-absent { background: #fee9e6; color: #b91c1c; }
+        .student-actions { display: flex; gap: 8px; }
+        .student-icon-btn { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 30px; padding: 5px 14px; font-size: 0.7rem; font-weight: 600; cursor: pointer; }
+        .add-btn { background: #e6f7e6; color: #2b6e2f; }
+        .remove-btn { background: #ffe6e5; color: #b13e3e; }
+        .summary-container { padding: 0.8rem; display: flex; flex-direction: column; gap: 12px; }
+        .summary-card { background: #fefefe; border: 1px solid #e9edf2; border-radius: 20px; overflow: hidden; }
+        .card-header { background: #f1f5f9; padding: 10px 12px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid #e2e8f0; }
+        .subject-input { padding: 6px 10px; border-radius: 60px; border: 1px solid #cbd5e1; font-size: 0.75rem; background: white; width: 130px; }
+        .date-input { padding: 6px 10px; border-radius: 60px; border: 1px solid #cbd5e1; font-size: 0.7rem; width: 95px; text-align: center; }
+        .split-lists { padding: 10px; }
+        .section-title { font-weight: 600; font-size: 0.7rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+        .count-badge { background: white; border-radius: 40px; padding: 2px 8px; font-size: 0.65rem; }
+        .student-tag { background: #f8fafc; padding: 6px 12px; border-radius: 40px; font-size: 0.7rem; display: inline-block; margin: 4px 6px 4px 0; border: 1px solid #cbd5e1; cursor: pointer; }
+        .empty-message { color: #94a3b8; font-style: italic; font-size: 0.7rem; text-align: center; padding: 10px; }
+        .legend-bottom { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; padding: 0.8rem; background: #f9fbfd; border-top: 1px solid #e4e9f0; font-size: 0.65rem; }
+        @media (max-width: 480px) {
+            .subject-label { min-width: 85px; font-size: 0.65rem; }
+            .status-badge { min-width: 95px; font-size: 0.65rem; }
+            .student-icon-btn { padding: 5px 10px; }
+            .summary-tag { font-size: 0.7rem; padding: 4px 10px; }
+        }
+    </style>
+</head>
+<body>
+<div class="main-dashboard">
+    <div class="journal-header">
+        <h1>📋 Журнал посещаемости</h1>
+        <p>Нажмите на имя в списке — измените статус</p>
+    </div>
+
+    <div class="weekdays-bar" id="weekdaysBar"></div>
+
+    <div class="action-buttons">
+        <button class="reset-btn" id="resetDayBtn">⟳ Сбросить день</button>
+        <button class="clear-btn" id="clearAllBtn">🗑 Очистить всё</button>
+    </div>
+
+    <div id="uniqueAttendanceBlock"></div>
+    <div id="neverAttendedBlock"></div>
+    <div class="students-list" id="studentsList"></div>
+    <div class="summary-container" id="summaryContainer"></div>
+
+    <div class="legend-bottom">
+        <span>🟢 Присутствовал(а)</span>
+        <span>🔴 Отсутствовал(а)</span>
+        <span>👆 Нажмите на имя</span>
+        <span>☁️ Синхронизация с GitHub</span>
+    </div>
+</div>
+
+<script>
+// ==================== НАСТРОЙКИ GITHUB ====================
+// ⚠️ ВСТАВЬТЕ НОВЫЙ ТОКЕН ВМЕСТО 'ВСТАВЬТЕ_НОВЫЙ_ТОКЕН'. НИКОМУ НЕ ПОКАЗЫВАЙТЕ!
+const GH_CONFIG = {
+    owner:  'Avtaritet128',
+    repo:   'posechaemost21p',
+    path:   'data.json',
+    branch: 'main',
+    token:  'ВСТАВЬТЕ_НОВЫЙ_ТОКЕН'
+};
+
+// ==================== ДАННЫЕ ====================
+const STUDENTS_FULL = [
+    "Аношин Михаил Александрович","Богданович Андрей Сергеевич","Бодров Максим Вячеславович",
+    "Гневанов Арсений Данилович","Громов Денис Алексеевич",
+    "Жороев Мухаммад Кудуратович","Зуев Андрей Алексеевич",
+    "Кулешов Матвей Сергеевич","Латышев Роман Алексеевич","Лялин Даниил Евгеньевич",
+    "Науменко Александр Алексеевич","Нугаев Тимур Рушанович",
+    "Островская Диана Андреевна","Павлов Арсений Алексеевич","Перова Кристина Игоревна",
+    "Семянченков Руслан Ихтиёрович","Хохлов Егор Андреевич","Цаплин Иван Николаевич",
+    "Шалагин Артём Алексеевич","Яничев Егор Андреевич"
+];
+const STUDENTS_COUNT = STUDENTS_FULL.length;
+const SUBJECTS_COUNT = 4;
+const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri'];
+const DAY_NAMES = { mon: 'ПН', tue: 'ВТ', wed: 'СР', thu: 'ЧТ', fri: 'ПТ' };
+const DAY_FULL  = { mon: 'Понедельник', tue: 'Вторник', wed: 'Среда', thu: 'Четверг', fri: 'Пятница' };
+
+let currentDay = 'mon';
+let attendanceData = {};
+let subjectTexts = {};
+let dateTexts = {};
+let fileSha = null;
+let saveTimeout = null;
+
+// ==================== ИНДИКАТОР СТАТУСА ====================
+function setSyncStatus(text, color = '#2c5a7a') {
+    let el = document.getElementById('syncStatus');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'syncStatus';
+        el.style.cssText = 'position:fixed;bottom:10px;right:10px;background:white;border:1px solid #cbd5e1;padding:6px 12px;border-radius:40px;font-size:0.7rem;box-shadow:0 2px 8px rgba(0,0,0,0.1);z-index:9999;transition:opacity 0.3s;';
+        document.body.appendChild(el);
+    }
+    el.textContent = text;
+    el.style.color = color;
+    el.style.opacity = '1';
+}
+
+// ==================== GITHUB API ====================
+async function ghLoad() {
+    const url = `https://api.github.com/repos/${GH_CONFIG.owner}/${GH_CONFIG.repo}/contents/${GH_CONFIG.path}?ref=${GH_CONFIG.branch}&t=${Date.now()}`;
+    const res = await fetch(url, {
+        headers: {
+            'Authorization': `token ${GH_CONFIG.token}`,
+            'Accept': 'application/vnd.github.v3+json'
+        },
+        cache: 'no-store'
+    });
+    if (res.status === 404) return { data: null, sha: null };
+    if (!res.ok) throw new Error('GitHub load error: ' + res.status);
+    const json = await res.json();
+    const content = decodeURIComponent(escape(atob(json.content.replace(/\n/g, ''))));
+    return { data: JSON.parse(content), sha: json.sha };
+}
+
+async function ghSave() {
+    const payload = { attendance: attendanceData, subjectTexts: subjectTexts, dateTexts: dateTexts };
+    const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
+    const url = `https://api.github.com/repos/${GH_CONFIG.owner}/${GH_CONFIG.repo}/contents/${GH_CONFIG.path}`;
+    const body = {
+        message: `Обновление журнала — ${new Date().toISOString()}`,
+        content: content,
+        branch: GH_CONFIG.branch
+    };
+    if (fileSha) body.sha = fileSha;
+    const res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+            'Authorization': `token ${GH_CONFIG.token}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error('GitHub save error: ' + res.status);
+    const json = await res.json();
+    fileSha = json.content.sha;
+}
+
+function scheduleSave() {
+    setSyncStatus('⏳ Сохранение…', '#a07c2e');
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(async () => {
+        try {
+            await ghSave();
+            setSyncStatus('✅ Сохранено', '#15803d');
+            setTimeout(() => setSyncStatus('☁️ Синхронизировано'), 1500);
+        } catch (e) {
+            console.error(e);
+            setSyncStatus('❌ Ошибка сохранения', '#b91c1c');
+        } finally {
+            saveTimeout = null;
+        }
+    }, 700);
+}
+
+// ==================== СТРУКТУРА ДАННЫХ ====================
+function emptyDay() {
+    const d = {};
+    for (const s of STUDENTS_FULL) d[s] = [false, false, false, false];
+    return d;
+}
+
+function normalizeData() {
+    for (const day of DAYS) {
+        if (!attendanceData[day]) attendanceData[day] = {};
+        if (!subjectTexts[day]) subjectTexts[day] = {0:'',1:'',2:'',3:''};
+        if (!dateTexts[day]) dateTexts[day] = {0:'',1:'',2:'',3:''};
+        for (const s of STUDENTS_FULL) {
+            if (!Array.isArray(attendanceData[day][s])) attendanceData[day][s] = [false, false, false, false];
+        }
+        for (let i = 0; i < SUBJECTS_COUNT; i++) {
+            if (subjectTexts[day][i] === undefined) subjectTexts[day][i] = '';
+            if (dateTexts[day][i] === undefined) dateTexts[day][i] = '';
+        }
+    }
+}
+
+async function initData() {
+    setSyncStatus('⏳ Загрузка…', '#a07c2e');
+    try {
+        const { data, sha } = await ghLoad();
+        fileSha = sha;
+        if (data && data.attendance) {
+            attendanceData = data.attendance;
+            subjectTexts = data.subjectTexts || {};
+            dateTexts = data.dateTexts || {};
+        } else {
+            for (const day of DAYS) {
+                attendanceData[day] = emptyDay();
+                subjectTexts[day] = {0:'',1:'',2:'',3:''};
+                dateTexts[day] = {0:'',1:'',2:'',3:''};
+            }
+        }
+        normalizeData();
+        setSyncStatus('✅ Загружено', '#15803d');
+        setTimeout(() => setSyncStatus('☁️ Синхронизировано'), 1500);
+    } catch (e) {
+        console.error(e);
+        setSyncStatus('❌ Ошибка загрузки', '#b91c1c');
+        for (const day of DAYS) {
+            attendanceData[day] = emptyDay();
+            subjectTexts[day] = {0:'',1:'',2:'',3:''};
+            dateTexts[day] = {0:'',1:'',2:'',3:''};
+        }
+    }
+    renderWeekdays();
+    renderAll();
+}
+
+// ==================== ХЕЛПЕРЫ ====================
+function getShortName(full) {
+    const p = full.split(/\s+/);
+    return p.length >= 2 ? `${p[0]} ${p[1]}` : full;
+}
+function getCurrentAttendance()   { return attendanceData[currentDay]; }
+function getCurrentSubjectTexts() { return subjectTexts[currentDay]; }
+function getCurrentDateTexts()    { return dateTexts[currentDay]; }
+function escapeHtml(str) {
+    return String(str).replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
+}
+
+function updateAttendance(student, subjIdx, isPresent) {
+    attendanceData[currentDay][student][subjIdx] = isPresent;
+    renderAll();
+    scheduleSave();
+}
+function updateSubjectText(i, v) { subjectTexts[currentDay][i] = v; renderAll(); scheduleSave(); }
+function updateDateText(i, v)    { dateTexts[currentDay][i]    = v; renderAll(); scheduleSave(); }
+
+function resetCurrentDay() {
+    if (!confirm(`Сбросить все отметки для ${DAY_FULL[currentDay]}?`)) return;
+    for (const s of STUDENTS_FULL) attendanceData[currentDay][s] = [false, false, false, false];
+    renderAll();
+    scheduleSave();
+}
+function clearAllData() {
+    if (!confirm('Очистить ВСЕ данные (все дни)? Это удалит все отметки, названия и даты.')) return;
+    for (const day of DAYS) {
+        for (const s of STUDENTS_FULL) attendanceData[day][s] = [false, false, false, false];
+        subjectTexts[day] = {0:'',1:'',2:'',3:''};
+        dateTexts[day] = {0:'',1:'',2:'',3:''};
+    }
+    renderAll();
+    scheduleSave();
+}
+
+function getAttendedStudents() {
+    const d = getCurrentAttendance();
+    return STUDENTS_FULL.filter(s => d[s]?.some(v => v === true)).map(getShortName);
+}
+function getNeverAttendedStudents() {
+    const d = getCurrentAttendance();
+    return STUDENTS_FULL.filter(s => !d[s]?.some(v => v === true)).map(getShortName);
+}
+function getCurrentDayDate() {
+    const dates = getCurrentDateTexts();
+    for (let i = 0; i < SUBJECTS_COUNT; i++) if (dates[i]?.trim()) return dates[i].trim();
+    return '';
+}
+
+// ==================== РЕНДЕР ====================
+function renderWeekdays() {
+    const bar = document.getElementById('weekdaysBar');
+    bar.innerHTML = '';
+    for (const day of DAYS) {
+        const btn = document.createElement('button');
+        btn.textContent = DAY_NAMES[day];
+        btn.className = `day-btn ${currentDay === day ? 'active' : ''}`;
+        btn.onclick = () => { currentDay = day; renderAll(); renderWeekdays(); };
+        bar.appendChild(btn);
+    }
+}
+
+function renderAttendedBlock() {
+    const list = getAttendedStudents();
+    const d = getCurrentDayDate();
+    const dH = d ? `<div class="summary-date">📅 ${escapeHtml(d)}</div>` : '';
+    document.getElementById('uniqueAttendanceBlock').innerHTML = `
+        <div class="summary-block">
+            <div class="summary-header">
+                <h3>✅ ${DAY_FULL[currentDay]} — присутствовали на парах</h3>
+                ${dH}
+                <div class="summary-count">${list.length} / ${STUDENTS_COUNT}</div>
+            </div>
+            <div class="summary-list">
+                ${list.length ? list.map(n => `<span class="summary-tag">${escapeHtml(n)}</span>`).join('') : `<div class="empty-summary">— никто не отмечен —</div>`}
+            </div>
+        </div>`;
+}
+
+function renderNeverAttendedBlock() {
+    const list = getNeverAttendedStudents();
+    const d = getCurrentDayDate();
+    const dH = d ? `<div class="summary-date">📅 ${escapeHtml(d)}</div>` : '';
+    document.getElementById('neverAttendedBlock').innerHTML = `
+        <div class="summary-block never-block">
+            <div class="summary-header">
+                <h3>❌ ${DAY_FULL[currentDay]} — отсутствовали на парах</h3>
+                ${dH}
+                <div class="summary-count">${list.length} / ${STUDENTS_COUNT}</div>
+            </div>
+            <div class="summary-list">
+                ${list.length ? list.map(n => `<span class="summary-tag">${escapeHtml(n)}</span>`).join('') : `<div class="empty-summary">— все были хотя бы на одной паре —</div>`}
+            </div>
+        </div>`;
+}
+
+function renderStudentsList() {
+    const container = document.getElementById('studentsList');
+    const dayData = getCurrentAttendance();
+    const texts = getCurrentSubjectTexts();
+    container.innerHTML = '';
+    for (const student of STUDENTS_FULL) {
+        const presents = dayData[student] || [false, false, false, false];
+        const short = getShortName(student);
+        let sHtml = '';
+        for (let i = 0; i < SUBJECTS_COUNT; i++) {
+            const isP = presents[i];
+            const label = texts[i] ? `${i+1} — ${escapeHtml(texts[i])}` : `${i+1} пара`;
+            sHtml += `<div class="subject-item">
+                <span class="subject-label">${escapeHtml(label)}</span>
+                <span class="status-badge ${isP ? 'status-present' : 'status-absent'}">${isP ? 'Присутствовал(а)' : 'Отсутствовал(а)'}</span>
+                <div class="student-actions">
+                    <button class="student-icon-btn add-btn" data-student="${escapeHtml(student)}" data-subj="${i}">➕</button>
+                    <button class="student-icon-btn remove-btn" data-student="${escapeHtml(student)}" data-subj="${i}">➖</button>
+                </div>
+            </div>`;
+        }
+        const card = document.createElement('div');
+        card.className = 'student-card';
+        card.innerHTML = `<div class="student-name">${escapeHtml(short)}</div><div class="subjects-row">${sHtml}</div>`;
+        container.appendChild(card);
+    }
+    container.querySelectorAll('.add-btn').forEach(b => b.onclick = () => updateAttendance(b.dataset.student, +b.dataset.subj, true));
+    container.querySelectorAll('.remove-btn').forEach(b => b.onclick = () => updateAttendance(b.dataset.student, +b.dataset.subj, false));
+}
+
+function renderSummaries() {
+    const container = document.getElementById('summaryContainer');
+    const dayData = getCurrentAttendance();
+    const texts = getCurrentSubjectTexts();
+    const dates = getCurrentDateTexts();
+    let html = '';
+    for (let i = 0; i < SUBJECTS_COUNT; i++) {
+        const present = [], absent = [];
+        for (const s of STUDENTS_FULL) {
+            const short = getShortName(s);
+            (dayData[s]?.[i] ? present : absent).push(short);
+        }
+        html += `<div class="summary-card">
+            <div class="card-header">
+                <div><strong>${i+1} пара</strong>
+                    <input class="subject-input" value="${escapeHtml(texts[i]||'')}" placeholder="Название..." data-subj="${i}"></div>
+                <div><span style="background:white;padding:2px 10px;border-radius:40px;">${present.length}/${STUDENTS_COUNT}</span>
+                    <input class="date-input" value="${escapeHtml(dates[i]||'')}" placeholder="ДД.ММ.ГГГГ" data-subj="${i}"></div>
+            </div>
+            <div class="split-lists">
+                <div class="section-title" style="color:#15803d;">✅ ПРИСУТСТВОВАЛ(А) <span class="count-badge">${present.length}</span></div>
+                <div>${present.length ? present.map(n => `<span class="student-tag" data-short="${escapeHtml(n)}" data-subj="${i}" data-status="present">${escapeHtml(n)}</span>`).join('') : '<div class="empty-message">— пусто —</div>'}</div>
+                <div class="section-title" style="color:#b91c1c;margin-top:12px;">❌ ОТСУТСТВОВАЛ(А) <span class="count-badge">${absent.length}</span></div>
+                <div>${absent.length ? absent.map(n => `<span class="student-tag" data-short="${escapeHtml(n)}" data-subj="${i}" data-status="absent">${escapeHtml(n)}</span>`).join('') : '<div class="empty-message">— пусто —</div>'}</div>
+            </div>
+        </div>`;
+    }
+    container.innerHTML = html;
+    container.querySelectorAll('.subject-input').forEach(inp => inp.onchange = () => updateSubjectText(+inp.dataset.subj, inp.value));
+    container.querySelectorAll('.date-input').forEach(inp => inp.onchange = () => updateDateText(+inp.dataset.subj, inp.value));
+    container.querySelectorAll('.student-tag').forEach(t => t.onclick = () => {
+        const short = t.dataset.short, subj = +t.dataset.subj;
+        const newStatus = t.dataset.status !== 'present';
+        const full = STUDENTS_FULL.find(s => getShortName(s) === short);
+        if (full) updateAttendance(full, subj, newStatus);
+    });
+}
+
+function renderAll() {
+    renderAttendedBlock();
+    renderNeverAttendedBlock();
+    renderStudentsList();
+    renderSummaries();
+}
+
+// ==================== АВТООБНОВЛЕНИЕ ====================
+async function pollForUpdates() {
+    if (saveTimeout) return;
+    try {
+        const { data, sha } = await ghLoad();
+        if (sha && sha !== fileSha && data) {
+            fileSha = sha;
+            attendanceData = data.attendance || attendanceData;
+            subjectTexts = data.subjectTexts || subjectTexts;
+            dateTexts = data.dateTexts || dateTexts;
+            normalizeData();
+            renderAll();
+            setSyncStatus('🔄 Обновлено с сервера', '#2c5a7a');
+            setTimeout(() => setSyncStatus('☁️ Синхронизировано'), 1500);
+        }
+    } catch (e) {}
+}
+
+// ==================== СТАРТ ====================
+document.getElementById('resetDayBtn').onclick = resetCurrentDay;
+document.getElementById('clearAllBtn').onclick = clearAllData;
+
+initData().then(() => {
+    setInterval(pollForUpdates, 20000);
+    window.addEventListener('focus', pollForUpdates);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) pollForUpdates(); });
+});
+</script>
+</body>
+</html>
