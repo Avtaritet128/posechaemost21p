@@ -403,6 +403,12 @@ document.getElementById('resetDayBtn').onclick = resetCurrentDay;
 document.getElementById('clearAllBtn').onclick = clearAllData;
 
 renderWeekdays();
+// Пустую структуру создаём сразу, чтобы renderAll не падал
+for (const day of DAYS) {
+    attendanceData[day] = emptyDay();
+    subjectTexts[day] = {0:'',1:'',2:'',3:''};
+    dateTexts[day] = {0:'',1:'',2:'',3:''};
+}
 renderAll();
 initFirebase();
 </script>
