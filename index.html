@@ -182,15 +182,45 @@ function showToast(text, duration = 6000) {
     }, duration);
 }
 
+// ==================== КОНВЕРТАЦИЯ ДАННЫХ ====================
+// true/false → "был"/"не был" (для красивого вида в Firebase)
+function convertAttendanceForSave(data) {
+    const result = {};
+    for (const day of DAYS) {
+        result[day] = {};
+        for (const student of STUDENTS_FULL) {
+            const arr = data[day]?.[student] || [false, false, false, false];
+            result[day][student] = arr.map(v => v ? 'был' : 'не был');
+        }
+    }
+    return result;
+}
+
+// "был"/"не был" → true/false (при загрузке, понимает и старый формат)
+function convertAttendanceFromLoad(data) {
+    const result = {};
+    for (const day of DAYS) {
+        result[day] = {};
+        for (const student of STUDENTS_FULL) {
+            const arr = data[day]?.[student];
+            if (!Array.isArray(arr)) {
+                result[day][student] = [false, false, false, false];
+            } else {
+                result[day][student] = arr.map(v => v === 'был' || v === true);
+            }
+        }
+    }
+    return result;
+}
+
 // ==================== РАБОТА С НЕДЕЛЯМИ ====================
 function getWeekInfo(date = new Date()) {
     const pad = (n) => String(n).padStart(2, '0');
     const fmtDMY = (d) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(-2)}`;
 
-    // Определяем понедельник недели, к которой относится дата
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
-    const day = d.getDay(); // 0=вс, 1=пн, ..., 6=сб
+    const day = d.getDay();
     const diffToMonday = (day === 0 ? -6 : 1 - day);
     const monday = new Date(d);
     monday.setDate(d.getDate() + diffToMonday);
@@ -198,7 +228,6 @@ function getWeekInfo(date = new Date()) {
     const friday = new Date(monday);
     friday.setDate(monday.getDate() + 4);
 
-    // Номер ISO-недели (для информации)
     const tmp = new Date(Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()));
     const dayNum = tmp.getUTCDay() || 7;
     tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
@@ -221,7 +250,7 @@ function getWeekInfo(date = new Date()) {
 
 function isWeekend(date = new Date()) {
     const day = date.getDay();
-    return day === 0 || day === 6; // сб или вс
+    return day === 0 || day === 6;
 }
 
 function hasAnyData() {
@@ -272,18 +301,10 @@ async function checkAndArchive() {
     if (!isWeekend(now)) return;
     if (!hasAnyData()) return;
 
-    // Определяем неделю, которая только что закончилась.
-    // Если сегодня сб (день 6) — прошлая неделя = current - 6 дней (до пн этой недели - 1)
-    // Если сегодня вс (день 0) — прошлая неделя = current - 7 дней (до пн этой недели - 1)
-    // Проще: берём "сегодня минус 1 день" и оттуда находим понедельник недели, к которой относится эта дата.
-    // В субботу "сегодня минус 1" = пятница → попадает в нужную неделю.
-    // В воскресенье "сегодня минус 1" = суббота → getWeekInfo вернёт ту же неделю, что закончилась (пн–пт).
     const lastWeekRef = new Date(now);
     lastWeekRef.setDate(now.getDate() - 1);
-
     const weekInfo = getWeekInfo(lastWeekRef);
 
-    // Проверяем, нет ли уже такого архива
     const archiveRef = doc(db, 'archives', weekInfo.id);
     const existing = await getDoc(archiveRef);
     if (existing.exists()) return;
@@ -293,7 +314,7 @@ async function checkAndArchive() {
 
     try {
         await setDoc(archiveRef, {
-            attendance: attendanceData,
+            attendance: convertAttendanceForSave(attendanceData),
             subjectTexts: subjectTexts,
             dateTexts: dateTexts,
             weekNumber: weekInfo.weekNumber,
@@ -303,16 +324,14 @@ async function checkAndArchive() {
             expiresAtMs: expiresAt
         });
 
-        // Очищаем рабочий документ
         const empty = emptyStructure();
         await setDoc(doc(db, 'journal', 'main'), {
-            attendance: empty.attendance,
+            attendance: convertAttendanceForSave(empty.attendance),
             subjectTexts: empty.subjectTexts,
             dateTexts: empty.dateTexts,
             updatedAt: serverTimestamp()
         });
 
-        // Чистим старые архивы
         await cleanupOldArchives();
 
         showToast(`📁 Данные за «${weekInfo.label}» сохранены в архив. Журнал очищен.`, 6000);
@@ -349,7 +368,7 @@ async function initFirebase() {
         onSnapshot(ref, (snap) => {
             if (snap.exists()) {
                 const data = snap.data();
-                attendanceData = data.attendance || {};
+                attendanceData = convertAttendanceFromLoad(data.attendance || {});
                 subjectTexts = data.subjectTexts || {};
                 dateTexts = data.dateTexts || {};
                 normalizeData();
@@ -381,7 +400,7 @@ function saveToFirebase() {
     saveTimeout = setTimeout(async () => {
         try {
             await setDoc(doc(db, 'journal', 'main'), {
-                attendance: attendanceData,
+                attendance: convertAttendanceForSave(attendanceData),
                 subjectTexts: subjectTexts,
                 dateTexts: dateTexts,
                 updatedAt: serverTimestamp()
