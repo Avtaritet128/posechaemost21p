@@ -54,18 +54,17 @@
         .student-tag { background: #f8fafc; padding: 6px 12px; border-radius: 40px; font-size: 0.7rem; display: inline-block; margin: 4px 6px 4px 0; border: 1px solid #cbd5e1; cursor: pointer; }
         .empty-message { color: #94a3b8; font-style: italic; font-size: 0.7rem; text-align: center; padding: 10px; }
         .legend-bottom { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; padding: 0.8rem; background: #f9fbfd; border-top: 1px solid #e4e9f0; font-size: 0.65rem; }
-        /* ==================== АНИМАЦИЯ ПОЯВЛЕНИЯ ==================== */
+
+        /* ==================== АНИМАЦИЯ ВОЛНЫ ==================== */
         @keyframes cardSlideIn {
             0%   { opacity: 0; transform: translateY(24px); }
             100% { opacity: 1; transform: translateY(0); }
         }
-
-        .student-card {
-            opacity: 0;
-        }
+        .student-card { opacity: 0; }
         .main-dashboard.animated .student-card {
             animation: cardSlideIn 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
         }
+
         @media (max-width: 480px) {
             .subject-label { min-width: 85px; font-size: 0.65rem; }
             .status-badge { min-width: 95px; font-size: 0.65rem; }
@@ -103,7 +102,6 @@
 
 <script type="module">
 // ==================== FIREBASE CONFIG ====================
-// ⬇️ НИЖЕ ВСТАВЬТЕ ВАШ КОНФИГ ИЗ FIREBASE CONSOLE
 const firebaseConfig = {
   apiKey: "AIzaSyAOn0s0YQiGo5bA4iSDCAZjY6NlAXIgEOU",
   authDomain: "posechaemost21p.firebaseapp.com",
@@ -136,6 +134,7 @@ let attendanceData = {};
 let subjectTexts = {};
 let dateTexts = {};
 let db = null;
+let firstAnimationDone = false;
 
 // ==================== ИМПОРТ FIREBASE ====================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -275,15 +274,15 @@ function clearAllData() {
 }
 
 function getAttendedStudents() {
-    const d = getCurrentAttendance();
+    const d = getCurrentAttendance() || {};
     return STUDENTS_FULL.filter(s => d[s]?.some(v => v === true)).map(getShortName);
 }
 function getNeverAttendedStudents() {
-    const d = getCurrentAttendance();
+    const d = getCurrentAttendance() || {};
     return STUDENTS_FULL.filter(s => !d[s]?.some(v => v === true)).map(getShortName);
 }
 function getCurrentDayDate() {
-    const dates = getCurrentDateTexts();
+    const dates = getCurrentDateTexts() || {};
     for (let i = 0; i < SUBJECTS_COUNT; i++) if (dates[i]?.trim()) return dates[i].trim();
     return '';
 }
@@ -337,46 +336,52 @@ function renderNeverAttendedBlock() {
 
 function renderStudentsList() {
     const container = document.getElementById('studentsList');
-    const dayData = getCurrentAttendance();
-    const texts = getCurrentSubjectTexts();
+    const dayData = getCurrentAttendance() || {};
+    const texts = getCurrentSubjectTexts() || {};
     container.innerHTML = '';
+
     for (let i = 0; i < STUDENTS_FULL.length; i++) {
         const student = STUDENTS_FULL[i];
         const presents = dayData[student] || [false, false, false, false];
         const short = getShortName(student);
         let sHtml = '';
-        for (let i = 0; i < SUBJECTS_COUNT; i++) {
-            const isP = presents[i];
-            const label = texts[i] ? `${i+1} — ${escapeHtml(texts[i])}` : `${i+1} пара`;
+        for (let j = 0; j < SUBJECTS_COUNT; j++) {
+            const isP = presents[j];
+            const label = texts[j] ? `${j+1} — ${escapeHtml(texts[j])}` : `${j+1} пара`;
             sHtml += `<div class="subject-item">
                 <span class="subject-label">${escapeHtml(label)}</span>
                 <span class="status-badge ${isP ? 'status-present' : 'status-absent'}">${isP ? 'Присутствовал(а)' : 'Отсутствовал(а)'}</span>
                 <div class="student-actions">
-                    <button class="student-icon-btn add-btn" data-student="${escapeHtml(student)}" data-subj="${i}">➕</button>
-                    <button class="student-icon-btn remove-btn" data-student="${escapeHtml(student)}" data-subj="${i}">➖</button>
+                    <button class="student-icon-btn add-btn" data-student="${escapeHtml(student)}" data-subj="${j}">➕</button>
+                    <button class="student-icon-btn remove-btn" data-student="${escapeHtml(student)}" data-subj="${j}">➖</button>
                 </div>
             </div>`;
         }
         const card = document.createElement('div');
         card.className = 'student-card';
         card.innerHTML = `<div class="student-name">${escapeHtml(short)}</div><div class="subjects-row">${sHtml}</div>`;
-                card.style.animationDelay = (i * 40) + 'ms';
-        card.dataset.index = i;
-        card.style.animationDelay = (i * 40) + 'ms';
+        // Анимация волны — только при первой загрузке
+        if (!firstAnimationDone) {
+            card.style.animationDelay = (i * 45) + 'ms';
+        } else {
+            card.style.opacity = '1';
+        }
         container.appendChild(card);
     }
+
     container.querySelectorAll('.add-btn').forEach(b => b.onclick = () => updateAttendance(b.dataset.student, +b.dataset.subj, true));
     container.querySelectorAll('.remove-btn').forEach(b => b.onclick = () => updateAttendance(b.dataset.student, +b.dataset.subj, false));
 }
 
 function renderSummaries() {
     const container = document.getElementById('summaryContainer');
-    const dayData = getCurrentAttendance();
-    const texts = getCurrentSubjectTexts();
-    const dates = getCurrentDateTexts();
+    const dayData = getCurrentAttendance() || {};
+    const texts = getCurrentSubjectTexts() || {};
+    const dates = getCurrentDateTexts() || {};
     let html = '';
-        for (let i = 0; i < STUDENTS_FULL.length; i++) {
-        const student = STUDENTS_FULL[i];
+    for (let i = 0; i < SUBJECTS_COUNT; i++) {
+        const present = [], absent = [];
+        for (const s of STUDENTS_FULL) {
             const short = getShortName(s);
             (dayData[s]?.[i] ? present : absent).push(short);
         }
@@ -418,6 +423,7 @@ document.getElementById('resetDayBtn').onclick = resetCurrentDay;
 document.getElementById('clearAllBtn').onclick = clearAllData;
 
 renderWeekdays();
+// Сразу создаём пустую структуру, чтобы renderAll не падал
 for (const day of DAYS) {
     attendanceData[day] = emptyDay();
     subjectTexts[day] = {0:'',1:'',2:'',3:''};
@@ -426,16 +432,14 @@ for (const day of DAYS) {
 renderAll();
 initFirebase();
 
-// Запуск анимации — только при первой загрузке страницы
+// Запуск анимации волны — только при первой загрузке
 window.addEventListener('load', () => {
     setTimeout(() => {
         document.querySelector('.main-dashboard').classList.add('animated');
-        // Снять задержку после того, как все карточки появились
+        // Помечаем, что первая анимация уже прошла
         setTimeout(() => {
-            document.querySelectorAll('.student-card').forEach(c => {
-                c.style.animationDelay = '0ms';
-            });
-        }, 1200);
+            firstAnimationDone = true;
+        }, 1500);
     }, 50);
 });
 </script>
