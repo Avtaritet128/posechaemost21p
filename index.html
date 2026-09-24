@@ -54,6 +54,31 @@
         .student-tag { background: #f8fafc; padding: 6px 12px; border-radius: 40px; font-size: 0.7rem; display: inline-block; margin: 4px 6px 4px 0; border: 1px solid #cbd5e1; cursor: pointer; }
         .empty-message { color: #94a3b8; font-style: italic; font-size: 0.7rem; text-align: center; padding: 10px; }
         .legend-bottom { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; padding: 0.8rem; background: #f9fbfd; border-top: 1px solid #e4e9f0; font-size: 0.65rem; }
+
+        /* ==================== ВСПЛЫВАЮЩЕЕ СООБЩЕНИЕ ==================== */
+        .toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            background: #0f2b3d;
+            color: white;
+            padding: 14px 22px;
+            border-radius: 40px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+            z-index: 10000;
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);
+            max-width: 90%;
+            text-align: center;
+        }
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
         @media (max-width: 480px) {
             .subject-label { min-width: 85px; font-size: 0.65rem; }
             .status-badge { min-width: 95px; font-size: 0.65rem; }
@@ -117,6 +142,7 @@ const SUBJECTS_COUNT = 4;
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri'];
 const DAY_NAMES = { mon: 'ПН', tue: 'ВТ', wed: 'СР', thu: 'ЧТ', fri: 'ПТ' };
 const DAY_FULL  = { mon: 'Понедельник', tue: 'Вторник', wed: 'Среда', thu: 'Четверг', fri: 'Пятница' };
+const ARCHIVE_RETENTION_DAYS = 365;
 
 let currentDay = 'mon';
 let attendanceData = {};
@@ -126,7 +152,7 @@ let db = null;
 
 // ==================== ИМПОРТ FIREBASE ====================
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, setDoc, onSnapshot, serverTimestamp }
+import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs, onSnapshot, serverTimestamp }
     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // ==================== ИНДИКАТОР ====================
@@ -143,11 +169,88 @@ function setSyncStatus(text, color = '#2c5a7a') {
     el.style.opacity = '1';
 }
 
+// ==================== ВСПЛЫВАЮЩЕЕ СООБЩЕНИЕ ====================
+function showToast(text, duration = 5000) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = text;
+    document.body.appendChild(el);
+    setTimeout(() => el.classList.add('show'), 50);
+    setTimeout(() => {
+        el.classList.remove('show');
+        setTimeout(() => el.remove(), 500);
+    }, duration);
+}
+
+// ==================== РАБОТА С НЕДЕЛЯМИ ====================
+function getWeekInfo(date = new Date()) {
+    // Определяем понедельник текущей недели
+    const d = new Date(date);
+    const day = d.getDay(); // 0=вс, 1=пн, ..., 6=сб
+    const diffToMonday = (day === 0 ? -6 : 1 - day);
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + diffToMonday);
+    monday.setHours(0, 0, 0, 0);
+
+    const friday = new Date(monday);
+    friday.setDate(monday.getDate() + 4);
+
+    // Номер ISO-недели
+    const tmp = new Date(Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()));
+    const dayNum = tmp.getUTCDay() || 7;
+    tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+    const weekNumber = Math.ceil((((tmp - yearStart) / 86400000) + 1) / 7);
+    const isoYear = tmp.getUTCFullYear();
+
+    const monthNames = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    const m1 = monthNames[monday.getMonth()];
+    const m2 = monthNames[friday.getMonth()];
+    const d1 = monday.getDate();
+    const d2 = friday.getDate();
+    const dateRange = (m1 === m2) ? `${d1}–${d2} ${m1}` : `${d1} ${m1} – ${d2} ${m2}`;
+
+    return {
+        weekNumber,
+        isoYear,
+        id: `${isoYear}-W${String(weekNumber).padStart(2, '0')}`,
+        label: `Неделя ${weekNumber} (${dateRange} ${friday.getFullYear()})`,
+        monday,
+        friday
+    };
+}
+
+function isWeekend(date = new Date()) {
+    const day = date.getDay();
+    return day === 0 || day === 6; // вс или сб
+}
+
+function hasAnyData() {
+    // Есть ли хоть одна отметка в журнале
+    for (const day of DAYS) {
+        const dayData = attendanceData[day] || {};
+        for (const student of STUDENTS_FULL) {
+            if (dayData[student]?.some(v => v === true)) return true;
+        }
+    }
+    return false;
+}
+
 // ==================== СТРУКТУРА ====================
 function emptyDay() {
     const d = {};
     for (const s of STUDENTS_FULL) d[s] = [false, false, false, false];
     return d;
+}
+
+function emptyStructure() {
+    const att = {}, sub = {}, dat = {};
+    for (const day of DAYS) {
+        att[day] = emptyDay();
+        sub[day] = {0:'',1:'',2:'',3:''};
+        dat[day] = {0:'',1:'',2:'',3:''};
+    }
+    return { attendance: att, subjectTexts: sub, dateTexts: dat };
 }
 
 function normalizeData() {
@@ -162,6 +265,82 @@ function normalizeData() {
             if (subjectTexts[day][i] === undefined) subjectTexts[day][i] = '';
             if (dateTexts[day][i] === undefined) dateTexts[day][i] = '';
         }
+    }
+}
+
+// ==================== АРХИВАЦИЯ ====================
+async function checkAndArchive() {
+    // 1. Проверяем день недели
+    const now = new Date();
+    if (!isWeekend(now)) return; // только сб или вс
+
+    // 2. Проверяем, есть ли что архивировать
+    if (!hasAnyData()) return;
+
+    // 3. Определяем неделю
+    // Если сегодня сб или вс — неделя, которую надо архивировать, только что закончилась
+    // Считаем её как "прошлая неделя" относительно сегодня
+    const lastWeekRef = new Date(now);
+    // Откатываемся на 7 дней, чтобы точно попасть в прошлую неделю
+    // (в сб — прошлая неделя, в вс — тоже прошлая)
+    lastWeekRef.setDate(now.getDate() - 7);
+    const weekInfo = getWeekInfo(lastWeekRef);
+
+    // 4. Проверяем, существует ли уже такой архив
+    const archiveRef = doc(db, 'archives', weekInfo.id);
+    const existing = await getDoc(archiveRef);
+    if (existing.exists()) return; // уже архивировано
+
+    // 5. Создаём архив
+    const now_ts = Date.now();
+    const expiresAt = now_ts + ARCHIVE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+    try {
+        await setDoc(archiveRef, {
+            attendance: attendanceData,
+            subjectTexts: subjectTexts,
+            dateTexts: dateTexts,
+            weekNumber: weekInfo.weekNumber,
+            weekLabel: weekInfo.label,
+            createdAt: serverTimestamp(),
+            createdAtMs: now_ts,
+            expiresAtMs: expiresAt
+        });
+
+        // 6. Очищаем рабочий документ
+        const empty = emptyStructure();
+        await setDoc(doc(db, 'journal', 'main'), {
+            attendance: empty.attendance,
+            subjectTexts: empty.subjectTexts,
+            dateTexts: empty.dateTexts,
+            updatedAt: serverTimestamp()
+        });
+
+        // 7. Удаляем старые архивы (старше года)
+        await cleanupOldArchives();
+
+        // 8. Показываем сообщение
+        showToast(`📁 Данные за «${weekInfo.label}» сохранены в архив. Журнал очищен.`, 6000);
+
+    } catch (e) {
+        console.error('Ошибка архивации:', e);
+    }
+}
+
+async function cleanupOldArchives() {
+    try {
+        const now_ts = Date.now();
+        const archivesCol = collection(db, 'archives');
+        const snapshot = await getDocs(archivesCol);
+        for (const d of snapshot.docs) {
+            const data = d.data();
+            if (data.expiresAtMs && data.expiresAtMs < now_ts) {
+                await deleteDoc(doc(db, 'archives', d.id));
+                console.log('Удалён старый архив:', d.id);
+            }
+        }
+    } catch (e) {
+        console.error('Ошибка очистки старых архивов:', e);
     }
 }
 
@@ -182,12 +361,13 @@ async function initFirebase() {
                 normalizeData();
                 renderAll();
                 setSyncStatus('✅ Синхронизировано', '#15803d');
+                // Проверяем необходимость архивации
+                setTimeout(checkAndArchive, 1000);
             } else {
-                for (const day of DAYS) {
-                    attendanceData[day] = emptyDay();
-                    subjectTexts[day] = {0:'',1:'',2:'',3:''};
-                    dateTexts[day] = {0:'',1:'',2:'',3:''};
-                }
+                const empty = emptyStructure();
+                attendanceData = empty.attendance;
+                subjectTexts = empty.subjectTexts;
+                dateTexts = empty.dateTexts;
                 saveToFirebase();
                 setSyncStatus('✅ Создано', '#15803d');
             }
@@ -402,12 +582,10 @@ document.getElementById('resetDayBtn').onclick = resetCurrentDay;
 document.getElementById('clearAllBtn').onclick = clearAllData;
 
 renderWeekdays();
-// Сразу создаём пустую структуру, чтобы renderAll не падал
-for (const day of DAYS) {
-    attendanceData[day] = emptyDay();
-    subjectTexts[day] = {0:'',1:'',2:'',3:''};
-    dateTexts[day] = {0:'',1:'',2:'',3:''};
-}
+const empty = emptyStructure();
+attendanceData = empty.attendance;
+subjectTexts = empty.subjectTexts;
+dateTexts = empty.dateTexts;
 renderAll();
 initFirebase();
 </script>
