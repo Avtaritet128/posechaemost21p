@@ -85,19 +85,21 @@
         <span>🟢 Присутствовал(а)</span>
         <span>🔴 Отсутствовал(а)</span>
         <span>👆 Нажмите на имя</span>
-        <span>☁️ Синхронизация с GitHub</span>
+        <span>🔥 Синхронизация через Firebase</span>
     </div>
 </div>
 
-<script>
-// ==================== НАСТРОЙКИ GITHUB ====================
-// ⚠️ ВСТАВЬТЕ НОВЫЙ ТОКЕН ВМЕСТО 'ВСТАВЬТЕ_НОВЫЙ_ТОКЕН'. НИКОМУ НЕ ПОКАЗЫВАЙТЕ!
-const GH_CONFIG = {
-    owner:  'Avtaritet128',
-    repo:   'posechaemost21p',
-    path:   'data.json',
-    branch: 'main',
-    token:  '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'
+<script type="module">
+// ==================== FIREBASE CONFIG ====================
+// ⬇️ НИЖЕ ВСТАВЬТЕ ВАШ КОНФИГ ИЗ FIREBASE CONSOLE
+const firebaseConfig = {
+  apiKey: "AIzaSyAOn0s0YQiGo5bA4iSDCAZjY6NlAXIgEOU",
+  authDomain: "posechaemost21p.firebaseapp.com",
+  projectId: "posechaemost21p",
+  storageBucket: "posechaemost21p.firebasestorage.app",
+  messagingSenderId: "512441312712",
+  appId: "1:512441312712:web:0de5f20f07bdff42bc0cfd",
+  measurementId: "G-GE14XK36D1"
 };
 
 // ==================== ДАННЫЕ ====================
@@ -121,10 +123,14 @@ let currentDay = 'mon';
 let attendanceData = {};
 let subjectTexts = {};
 let dateTexts = {};
-let fileSha = null;
-let saveTimeout = null;
+let db = null;
 
-// ==================== ИНДИКАТОР СТАТУСА ====================
+// ==================== ИМПОРТ FIREBASE ====================
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, onSnapshot, serverTimestamp }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ==================== ИНДИКАТОР ====================
 function setSyncStatus(text, color = '#2c5a7a') {
     let el = document.getElementById('syncStatus');
     if (!el) {
@@ -138,65 +144,7 @@ function setSyncStatus(text, color = '#2c5a7a') {
     el.style.opacity = '1';
 }
 
-// ==================== GITHUB API ====================
-async function ghLoad() {
-    const url = `https://api.github.com/repos/${GH_CONFIG.owner}/${GH_CONFIG.repo}/contents/${GH_CONFIG.path}?ref=${GH_CONFIG.branch}&t=${Date.now()}`;
-    const res = await fetch(url, {
-        headers: {
-            'Authorization': `token ${GH_CONFIG.token}`,
-            'Accept': 'application/vnd.github.v3+json'
-        },
-        cache: 'no-store'
-    });
-    if (res.status === 404) return { data: null, sha: null };
-    if (!res.ok) throw new Error('GitHub load error: ' + res.status);
-    const json = await res.json();
-    const content = decodeURIComponent(escape(atob(json.content.replace(/\n/g, ''))));
-    return { data: JSON.parse(content), sha: json.sha };
-}
-
-async function ghSave() {
-    const payload = { attendance: attendanceData, subjectTexts: subjectTexts, dateTexts: dateTexts };
-    const content = btoa(unescape(encodeURIComponent(JSON.stringify(payload, null, 2))));
-    const url = `https://api.github.com/repos/${GH_CONFIG.owner}/${GH_CONFIG.repo}/contents/${GH_CONFIG.path}`;
-    const body = {
-        message: `Обновление журнала — ${new Date().toISOString()}`,
-        content: content,
-        branch: GH_CONFIG.branch
-    };
-    if (fileSha) body.sha = fileSha;
-    const res = await fetch(url, {
-        method: 'PUT',
-        headers: {
-            'Authorization': `token ${GH_CONFIG.token}`,
-            'Accept': 'application/vnd.github.v3+json',
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-    });
-    if (!res.ok) throw new Error('GitHub save error: ' + res.status);
-    const json = await res.json();
-    fileSha = json.content.sha;
-}
-
-function scheduleSave() {
-    setSyncStatus('⏳ Сохранение…', '#a07c2e');
-    if (saveTimeout) clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(async () => {
-        try {
-            await ghSave();
-            setSyncStatus('✅ Сохранено', '#15803d');
-            setTimeout(() => setSyncStatus('☁️ Синхронизировано'), 1500);
-        } catch (e) {
-            console.error(e);
-            setSyncStatus('❌ Ошибка сохранения', '#b91c1c');
-        } finally {
-            saveTimeout = null;
-        }
-    }, 700);
-}
-
-// ==================== СТРУКТУРА ДАННЫХ ====================
+// ==================== СТРУКТУРА ====================
 function emptyDay() {
     const d = {};
     for (const s of STUDENTS_FULL) d[s] = [false, false, false, false];
@@ -218,36 +166,63 @@ function normalizeData() {
     }
 }
 
-async function initData() {
-    setSyncStatus('⏳ Загрузка…', '#a07c2e');
+// ==================== FIREBASE ====================
+async function initFirebase() {
+    setSyncStatus('⏳ Подключение…', '#a07c2e');
     try {
-        const { data, sha } = await ghLoad();
-        fileSha = sha;
-        if (data && data.attendance) {
-            attendanceData = data.attendance;
-            subjectTexts = data.subjectTexts || {};
-            dateTexts = data.dateTexts || {};
-        } else {
-            for (const day of DAYS) {
-                attendanceData[day] = emptyDay();
-                subjectTexts[day] = {0:'',1:'',2:'',3:''};
-                dateTexts[day] = {0:'',1:'',2:'',3:''};
+        const app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+
+        const ref = doc(db, 'journal', 'main');
+        onSnapshot(ref, (snap) => {
+            if (snap.exists()) {
+                const data = snap.data();
+                attendanceData = data.attendance || {};
+                subjectTexts = data.subjectTexts || {};
+                dateTexts = data.dateTexts || {};
+                normalizeData();
+                renderAll();
+                setSyncStatus('✅ Синхронизировано', '#15803d');
+            } else {
+                for (const day of DAYS) {
+                    attendanceData[day] = emptyDay();
+                    subjectTexts[day] = {0:'',1:'',2:'',3:''};
+                    dateTexts[day] = {0:'',1:'',2:'',3:''};
+                }
+                saveToFirebase();
+                setSyncStatus('✅ Создано', '#15803d');
             }
-        }
-        normalizeData();
-        setSyncStatus('✅ Загружено', '#15803d');
-        setTimeout(() => setSyncStatus('☁️ Синхронизировано'), 1500);
+        }, (err) => {
+            console.error(err);
+            setSyncStatus('❌ Ошибка Firebase', '#b91c1c');
+        });
     } catch (e) {
         console.error(e);
-        setSyncStatus('❌ Ошибка загрузки', '#b91c1c');
-        for (const day of DAYS) {
-            attendanceData[day] = emptyDay();
-            subjectTexts[day] = {0:'',1:'',2:'',3:''};
-            dateTexts[day] = {0:'',1:'',2:'',3:''};
-        }
+        setSyncStatus('❌ Ошибка подключения', '#b91c1c');
     }
-    renderWeekdays();
-    renderAll();
+}
+
+let saveTimeout = null;
+function saveToFirebase() {
+    setSyncStatus('⏳ Сохранение…', '#a07c2e');
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(async () => {
+        try {
+            await setDoc(doc(db, 'journal', 'main'), {
+                attendance: attendanceData,
+                subjectTexts: subjectTexts,
+                dateTexts: dateTexts,
+                updatedAt: serverTimestamp()
+            });
+            setSyncStatus('✅ Сохранено', '#15803d');
+            setTimeout(() => setSyncStatus('✅ Синхронизировано'), 1500);
+        } catch (e) {
+            console.error(e);
+            setSyncStatus('❌ Ошибка сохранения', '#b91c1c');
+        } finally {
+            saveTimeout = null;
+        }
+    }, 400);
 }
 
 // ==================== ХЕЛПЕРЫ ====================
@@ -265,26 +240,26 @@ function escapeHtml(str) {
 function updateAttendance(student, subjIdx, isPresent) {
     attendanceData[currentDay][student][subjIdx] = isPresent;
     renderAll();
-    scheduleSave();
+    saveToFirebase();
 }
-function updateSubjectText(i, v) { subjectTexts[currentDay][i] = v; renderAll(); scheduleSave(); }
-function updateDateText(i, v)    { dateTexts[currentDay][i]    = v; renderAll(); scheduleSave(); }
+function updateSubjectText(i, v) { subjectTexts[currentDay][i] = v; renderAll(); saveToFirebase(); }
+function updateDateText(i, v)    { dateTexts[currentDay][i]    = v; renderAll(); saveToFirebase(); }
 
 function resetCurrentDay() {
     if (!confirm(`Сбросить все отметки для ${DAY_FULL[currentDay]}?`)) return;
     for (const s of STUDENTS_FULL) attendanceData[currentDay][s] = [false, false, false, false];
     renderAll();
-    scheduleSave();
+    saveToFirebase();
 }
 function clearAllData() {
-    if (!confirm('Очистить ВСЕ данные (все дни)? Это удалит все отметки, названия и даты.')) return;
+    if (!confirm('Очистить ВСЕ данные (все дни)?')) return;
     for (const day of DAYS) {
         for (const s of STUDENTS_FULL) attendanceData[day][s] = [false, false, false, false];
         subjectTexts[day] = {0:'',1:'',2:'',3:''};
         dateTexts[day] = {0:'',1:'',2:'',3:''};
     }
     renderAll();
-    scheduleSave();
+    saveToFirebase();
 }
 
 function getAttendedStudents() {
@@ -423,33 +398,13 @@ function renderAll() {
     renderSummaries();
 }
 
-// ==================== АВТООБНОВЛЕНИЕ ====================
-async function pollForUpdates() {
-    if (saveTimeout) return;
-    try {
-        const { data, sha } = await ghLoad();
-        if (sha && sha !== fileSha && data) {
-            fileSha = sha;
-            attendanceData = data.attendance || attendanceData;
-            subjectTexts = data.subjectTexts || subjectTexts;
-            dateTexts = data.dateTexts || dateTexts;
-            normalizeData();
-            renderAll();
-            setSyncStatus('🔄 Обновлено с сервера', '#2c5a7a');
-            setTimeout(() => setSyncStatus('☁️ Синхронизировано'), 1500);
-        }
-    } catch (e) {}
-}
-
 // ==================== СТАРТ ====================
 document.getElementById('resetDayBtn').onclick = resetCurrentDay;
 document.getElementById('clearAllBtn').onclick = clearAllData;
 
-initData().then(() => {
-    setInterval(pollForUpdates, 20000);
-    window.addEventListener('focus', pollForUpdates);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) pollForUpdates(); });
-});
+renderWeekdays();
+renderAll();
+initFirebase();
 </script>
 </body>
 </html>
