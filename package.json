@@ -1,7 +1,0 @@
-{
-  "name": "attendance-journal",
-  "version": "1.0.0",
-  "scripts": {
-    "start": "npx serve -s . -l $PORT"
-  }
-}
