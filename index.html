@@ -170,7 +170,7 @@ function setSyncStatus(text, color = '#2c5a7a') {
 }
 
 // ==================== ВСПЛЫВАЮЩЕЕ СООБЩЕНИЕ ====================
-function showToast(text, duration = 5000) {
+function showToast(text, duration = 6000) {
     const el = document.createElement('div');
     el.className = 'toast';
     el.textContent = text;
@@ -184,18 +184,21 @@ function showToast(text, duration = 5000) {
 
 // ==================== РАБОТА С НЕДЕЛЯМИ ====================
 function getWeekInfo(date = new Date()) {
-    // Определяем понедельник текущей недели
+    const pad = (n) => String(n).padStart(2, '0');
+    const fmtDMY = (d) => `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(-2)}`;
+
+    // Определяем понедельник недели, к которой относится дата
     const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
     const day = d.getDay(); // 0=вс, 1=пн, ..., 6=сб
     const diffToMonday = (day === 0 ? -6 : 1 - day);
     const monday = new Date(d);
     monday.setDate(d.getDate() + diffToMonday);
-    monday.setHours(0, 0, 0, 0);
 
     const friday = new Date(monday);
     friday.setDate(monday.getDate() + 4);
 
-    // Номер ISO-недели
+    // Номер ISO-недели (для информации)
     const tmp = new Date(Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()));
     const dayNum = tmp.getUTCDay() || 7;
     tmp.setUTCDate(tmp.getUTCDate() + 4 - dayNum);
@@ -203,18 +206,14 @@ function getWeekInfo(date = new Date()) {
     const weekNumber = Math.ceil((((tmp - yearStart) / 86400000) + 1) / 7);
     const isoYear = tmp.getUTCFullYear();
 
-    const monthNames = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-    const m1 = monthNames[monday.getMonth()];
-    const m2 = monthNames[friday.getMonth()];
-    const d1 = monday.getDate();
-    const d2 = friday.getDate();
-    const dateRange = (m1 === m2) ? `${d1}–${d2} ${m1}` : `${d1} ${m1} – ${d2} ${m2}`;
+    const mondayStr = fmtDMY(monday);
+    const fridayStr = fmtDMY(friday);
 
     return {
         weekNumber,
         isoYear,
-        id: `${isoYear}-W${String(weekNumber).padStart(2, '0')}`,
-        label: `Неделя ${weekNumber} (${dateRange} ${friday.getFullYear()})`,
+        id: `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`,
+        label: `${mondayStr}-${fridayStr}`,
         monday,
         friday
     };
@@ -222,11 +221,10 @@ function getWeekInfo(date = new Date()) {
 
 function isWeekend(date = new Date()) {
     const day = date.getDay();
-    return day === 0 || day === 6; // вс или сб
+    return day === 0 || day === 6; // сб или вс
 }
 
 function hasAnyData() {
-    // Есть ли хоть одна отметка в журнале
     for (const day of DAYS) {
         const dayData = attendanceData[day] || {};
         for (const student of STUDENTS_FULL) {
@@ -270,28 +268,26 @@ function normalizeData() {
 
 // ==================== АРХИВАЦИЯ ====================
 async function checkAndArchive() {
-    // 1. Проверяем день недели
     const now = new Date();
-    if (!isWeekend(now)) return; // только сб или вс
-
-    // 2. Проверяем, есть ли что архивировать
+    if (!isWeekend(now)) return;
     if (!hasAnyData()) return;
 
-    // 3. Определяем неделю
-    // Если сегодня сб или вс — неделя, которую надо архивировать, только что закончилась
-    // Считаем её как "прошлая неделя" относительно сегодня
+    // Определяем неделю, которая только что закончилась.
+    // Если сегодня сб (день 6) — прошлая неделя = current - 6 дней (до пн этой недели - 1)
+    // Если сегодня вс (день 0) — прошлая неделя = current - 7 дней (до пн этой недели - 1)
+    // Проще: берём "сегодня минус 1 день" и оттуда находим понедельник недели, к которой относится эта дата.
+    // В субботу "сегодня минус 1" = пятница → попадает в нужную неделю.
+    // В воскресенье "сегодня минус 1" = суббота → getWeekInfo вернёт ту же неделю, что закончилась (пн–пт).
     const lastWeekRef = new Date(now);
-    // Откатываемся на 7 дней, чтобы точно попасть в прошлую неделю
-    // (в сб — прошлая неделя, в вс — тоже прошлая)
-    lastWeekRef.setDate(now.getDate() - 7);
+    lastWeekRef.setDate(now.getDate() - 1);
+
     const weekInfo = getWeekInfo(lastWeekRef);
 
-    // 4. Проверяем, существует ли уже такой архив
+    // Проверяем, нет ли уже такого архива
     const archiveRef = doc(db, 'archives', weekInfo.id);
     const existing = await getDoc(archiveRef);
-    if (existing.exists()) return; // уже архивировано
+    if (existing.exists()) return;
 
-    // 5. Создаём архив
     const now_ts = Date.now();
     const expiresAt = now_ts + ARCHIVE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
@@ -307,7 +303,7 @@ async function checkAndArchive() {
             expiresAtMs: expiresAt
         });
 
-        // 6. Очищаем рабочий документ
+        // Очищаем рабочий документ
         const empty = emptyStructure();
         await setDoc(doc(db, 'journal', 'main'), {
             attendance: empty.attendance,
@@ -316,12 +312,10 @@ async function checkAndArchive() {
             updatedAt: serverTimestamp()
         });
 
-        // 7. Удаляем старые архивы (старше года)
+        // Чистим старые архивы
         await cleanupOldArchives();
 
-        // 8. Показываем сообщение
         showToast(`📁 Данные за «${weekInfo.label}» сохранены в архив. Журнал очищен.`, 6000);
-
     } catch (e) {
         console.error('Ошибка архивации:', e);
     }
@@ -361,7 +355,6 @@ async function initFirebase() {
                 normalizeData();
                 renderAll();
                 setSyncStatus('✅ Синхронизировано', '#15803d');
-                // Проверяем необходимость архивации
                 setTimeout(checkAndArchive, 1000);
             } else {
                 const empty = emptyStructure();
