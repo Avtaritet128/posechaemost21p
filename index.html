@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Журнал посещаемости</title>
+<style>
+*{box-sizing:border-box;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+body{background:#eef2f8;margin:0;padding:12px;padding-bottom:60px;color:#0a1c2f}
+.app{max-width:600px;margin:0 auto;background:#fff;border-radius:24px;box-shadow:0 8px 20px rgba(0,0,0,.08);overflow:hidden}
+header{background:#0f2b3d;color:#fff;padding:16px 18px}
+h1{margin:0;font-size:1.4rem}
+header p{margin:4px 0 0;opacity:.85;font-size:.9rem}
+.days{display:flex;gap:8px;overflow-x:auto;padding:12px;background:#f8fafc;border-bottom:1px solid #e4e9f0}
+button{font:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid #e0a100;outline-offset:2px}
+.day{flex:0 0 auto;background:#f1f5f9;border:1px solid #cbd5e6;border-radius:40px;padding:8px 16px;font-weight:600;font-size:.95rem}
+.day[aria-pressed="true"]{background:#1f3b4c;color:#fff;border-color:#1f3b4c}
+.acts{display:flex;gap:8px;padding:12px}
+.acts button{flex:1;padding:10px;border-radius:40px;border:1px solid #cbd5e6;background:#f1f5f9;font-size:.9rem}
+.acts .danger{background:#fff1f0;border-color:#fbc4c1;color:#b13e3e}
+.sum{margin:0 12px 12px;border-radius:18px;padding:12px;border:1px solid}
+.sum h3{margin:0 0 8px;font-size:.95rem;display:flex;justify-content:space-between;gap:8px}
+.sum.p{background:#e9f9ee;border-color:#b7e4c4}.sum.e{background:#fff7e0;border-color:#f3d98b}.sum.a{background:#fef2f0;border-color:#ffcdc5}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{background:#fff;border:1px solid #d5dbe3;border-radius:40px;padding:4px 11px;font-size:.85rem}
+.none{color:#6b7a8a;font-size:.85rem}
+.list{padding:0 12px 12px;display:flex;flex-direction:column;gap:10px}
+.card{border:1px solid #e3e8ee;border-radius:18px;padding:12px}
+.name{font-weight:700;margin-bottom:8px}
+.pairs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.pair{border:1px solid;border-radius:14px;padding:8px 2px;font-size:.85rem;line-height:1.25;min-height:52px}
+.pair b{display:block;font-size:.8rem;font-weight:500;opacity:.8}
+.pair.p{background:#dcfce7;border-color:#86d9a0;color:#14672f}
+.pair.e{background:#fff1c2;border-color:#ecc54e;color:#7a5a00}
+.pair.a{background:#fee9e6;border-color:#f3aaa2;color:#a61b1b}
+h2{font-size:1rem;margin:4px 12px 8px}
+.pc{margin:0 12px 12px;border:1px solid #e3e8ee;border-radius:18px;overflow:hidden}
+.pc>div:first-child{background:#f1f5f9;padding:10px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pc input{flex:1;min-width:140px;padding:8px 12px;border-radius:40px;border:1px solid #cbd5e1;font-size:.9rem}
+.pc .grp{padding:10px 12px}
+.pc .grp+.grp{padding-top:0}
+.legend{padding:12px;background:#f9fbfd;border-top:1px solid #e4e9f0;font-size:.85rem;text-align:center;color:#40526b}
+#st{position:fixed;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));background:#fff;border:1px solid #cbd5e1;border-radius:40px;padding:6px 12px;font-size:.85rem;box-shadow:0 2px 8px rgba(0,0,0,.1)}
+#login{position:fixed;inset:0;background:rgba(15,43,61,.92);display:none;align-items:center;justify-content:center;padding:20px;z-index:10}
+#login form{background:#fff;border-radius:20px;padding:20px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:12px}
+#login input{padding:12px;border-radius:12px;border:1px solid #cbd5e1;font-size:1rem}
+#login button{padding:12px;border-radius:12px;border:0;background:#1f3b4c;color:#fff;font-weight:600}
+#err{color:#b91c1c;font-size:.9rem;min-height:1.2em}
+</style>
+</head>
+<body>
+<div class="app">
+  <header><h1>Журнал посещаемости</h1><p>Нажмите на пару, чтобы сменить статус: не был, был, уважительная причина</p></header>
+  <div class="days" id="days"></div>
+  <div class="acts">
+    <button type="button" id="resetDay">Сбросить день</button>
+    <button type="button" class="danger" id="clearAll">Очистить неделю</button>
+    <button type="button" id="logout">Выйти</button>
+  </div>
+  <div id="top"></div>
+  <div class="list" id="students"></div>
+  <h2>Пары дня</h2>
+  <div id="pairs"></div>
+  <div class="legend">Красный: не был · Зелёный: был · Жёлтый: уважительная причина</div>
+</div>
+<div id="st" role="status">Загрузка…</div>
+<div id="login"><form id="lf"><b>Вход в журнал</b><input id="em" type="email" autocomplete="username" placeholder="Почта" aria-label="Почта"><input id="pw" type="password" autocomplete="current-password" placeholder="Пароль" aria-label="Пароль"><div id="err"></div><button type="submit">Войти</button></form></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, updateDoc, onSnapshot, runTransaction, serverTimestamp, Timestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAOn0s0YQiGo5bA4iSDCAZjY6NlAXIgEOU",
+  authDomain: "posechaemost21p.firebaseapp.com",
+  projectId: "posechaemost21p",
+  storageBucket: "posechaemost21p.firebasestorage.app",
+  messagingSenderId: "512441312712",
+  appId: "1:512441312712:web:0de5f20f07bdff42bc0cfd"
+};
+const STUDENTS = [
+  "Аношин Михаил Александрович","Богданович Андрей Сергеевич","Бодров Максим Вячеславович",
+  "Гневанов Арсений Данилович","Громов Денис Алексеевич","Жороев Мухаммад Кудуратович",
+  "Зуев Андрей Алексеевич","Кулешов Матвей Сергеевич","Латышев Роман Алексеевич",
+  "Лялин Даниил Евгеньевич","Науменко Александр Алексеевич","Нугаев Тимур Рушанович",
+  "Островская Диана Андреевна","Павлов Арсений Алексеевич","Перова Кристина Игоревна",
+  "Семянченков Руслан Ихтиёрович","Хохлов Егор Андреевич","Цаплин Иван Николаевич",
+  "Шалагин Артём Алексеевич","Яничев Егор Андреевич"
+];
+const DAYS=['mon','tue','wed','thu','fri'],DN={mon:'ПН',tue:'ВТ',wed:'СР',thu:'ЧТ',fri:'ПТ'},
+DF={mon:'Понедельник',tue:'Вторник',wed:'Среда',thu:'Четверг',fri:'Пятница'},
+LBL={p:'Был',a:'Не был',e:'Уваж.'},NEXT={a:'p',p:'e',e:'a'},PAIRS=4;
+
+const app=initializeApp(firebaseConfig),db=getFirestore(app),auth=getAuth(app);
+const REF=doc(db,'journal','main');
+let S=null,day='mon',unsub=null,rolling=false;
+
+const $=id=>document.getElementById(id);
+const h=(t,a={},...k)=>{const e=document.createElement(t);for(const[n,v]of Object.entries(a)){if(n==='class')e.className=v;else if(n.startsWith('on'))e[n]=v;else e.setAttribute(n,v)}e.append(...k.flat());return e};
+const short=f=>f.split(/\s+/).slice(0,2).join(' ');
+const status=t=>{$('st').textContent=t};
+const pad=n=>String(n).padStart(2,'0');
+function weekId(){const m=new Date();m.setHours(0,0,0,0);m.setDate(m.getDate()-((m.getDay()+6)%7));return m.getFullYear()+'-'+pad(m.getMonth()+1)+'-'+pad(m.getDate())}
+const fresh=id=>({weekId:id,att:{},sub:{},updatedAt:serverTimestamp()});
+const cell=(i,p)=>S.att[day+'_'+i+'_'+p]||'a';
+const fail=e=>{console.error(e);status('Ошибка сохранения')};
+
+// ---- вход
+$('lf').onsubmit=async e=>{
+  e.preventDefault();$('err').textContent='';
+  try{await signInWithEmailAndPassword(auth,$('em').value.trim(),$('pw').value);$('pw').value=''}
+  catch(x){$('err').textContent=x.code==='auth/too-many-requests'?'Слишком много попыток, подождите':'Неверная почта или пароль'}
+};
+$('logout').onclick=()=>signOut(auth);
+onAuthStateChanged(auth,u=>{
+  if(unsub){unsub();unsub=null}
+  S=null;
+  if(!u){$('login').style.display='flex';return}
+  $('login').style.display='none';status('Загрузка…');
+  unsub=onSnapshot(REF,{includeMetadataChanges:true},snap=>{
+    if(!snap.exists()){setDoc(REF,fresh(weekId())).catch(fail);return}
+    S=snap.data();S.att=S.att||{};S.sub=S.sub||{};
+    render();
+    status(snap.metadata.hasPendingWrites?'Сохранение…':snap.metadata.fromCache?'Нет связи, показан кэш':'Синхронизировано');
+    rollover();
+  },e=>{console.error(e);status('Нет доступа или связи')});
+});
+
+// ---- новая неделя: архив + чистый журнал одной транзакцией
+async function rollover(){
+  if(rolling||!S||S.weekId===weekId())return;
+  rolling=true;
+  try{
+    await runTransaction(db,async tx=>{
+      const d=(await tx.get(REF)).data();
+      if(!d||d.weekId===weekId())return;
+      if(Object.values(d.att||{}).some(v=>v!=='a'))
+        tx.set(doc(db,'archives',d.weekId),{weekId:d.weekId,att:d.att,sub:d.sub||{},students:STUDENTS,
+          createdAt:serverTimestamp(),expireAt:Timestamp.fromMillis(Date.now()+365*864e5)});
+      tx.set(REF,fresh(weekId()));
+    });
+  }catch(e){console.error(e)}finally{rolling=false}
+}
+
+// ---- запись: только изменённое поле, чужие отметки не затираются
+function mark(i,p,v){updateDoc(REF,{['att.'+day+'_'+i+'_'+p]:v}).catch(fail)}
+function resetDay(){const o={};for(let i=0;i<STUDENTS.length;i++)for(let p=0;p<PAIRS;p++)o['att.'+day+'_'+i+'_'+p]='a';updateDoc(REF,o).catch(fail)}
+
+// ---- отрисовка
+function dateOf(d){const m=new Date(S.weekId+'T00:00:00');m.setDate(m.getDate()+DAYS.indexOf(d));return pad(m.getDate())+'.'+pad(m.getMonth()+1)}
+function groups(){
+  const g={p:[],e:[],a:[]};
+  STUDENTS.forEach((f,i)=>{const r=[0,1,2,3].map(p=>cell(i,p));(r.includes('p')?g.p:r.includes('e')?g.e:g.a).push(short(f))});
+  return g;
+}
+function sumBlock(cls,title,list){
+  return h('div',{class:'sum '+cls},h('h3',{},h('span',{},title),h('span',{},list.length+' / '+STUDENTS.length)),
+    h('div',{class:'tags'},list.length?list.map(n=>h('span',{class:'tag'},n)):h('span',{class:'none'},'никого')));
+}
+function renderTop(){
+  const g=groups();
+  $('top').replaceChildren(sumBlock('p',DF[day]+' '+dateOf(day)+': были хотя бы на одной паре',g.p),
+    sumBlock('e','Только с уважительной причиной',g.e),sumBlock('a','Отсутствовали без причины',g.a));
+}
+function renderDays(){
+  $('days').replaceChildren(...DAYS.map(d=>h('button',{type:'button',class:'day','aria-pressed':String(d===day),onclick:()=>{day=d;render()}},DN[d]+' '+dateOf(d))));
+}
+function renderStudents(){
+  $('students').replaceChildren(...STUDENTS.map((f,i)=>h('div',{class:'card'},h('div',{class:'name'},short(f)),
+    h('div',{class:'pairs'},[0,1,2,3].map(p=>{const v=cell(i,p);
+      return h('button',{type:'button',class:'pair '+v,'aria-label':short(f)+', '+(p+1)+' пара: '+LBL[v],
+        onclick:()=>mark(i,p,NEXT[cell(i,p)])},h('b',{},(p+1)+' пара'),LBL[v])})))));
+}
+function renderPairs(){
+  $('pairs').replaceChildren(...[0,1,2,3].map(p=>{
+    const g={p:[],e:[],a:[]};
+    STUDENTS.forEach((f,i)=>g[cell(i,p)].push(short(f)));
+    const grp=(t,l)=>h('div',{class:'grp'},h('div',{class:'none'},t+': '+l.length),h('div',{class:'tags'},l.map(n=>h('span',{class:'tag'},n))));
+    const inp=h('input',{type:'text',maxlength:'60',placeholder:'Название предмета','aria-label':(p+1)+' пара, название',value:S.sub[day+'_'+p]||''});
+    inp.onchange=()=>updateDoc(REF,{['sub.'+day+'_'+p]:inp.value}).catch(fail);
+    return h('div',{class:'pc'},h('div',{},h('b',{},(p+1)+' пара'),inp),grp('Были',g.p),grp('Уважительная причина',g.e),grp('Не были',g.a));
+  }));
+}
+function render(){
+  if(!S)return;
+  renderDays();renderTop();renderStudents();
+  if(document.activeElement?.tagName!=='INPUT')renderPairs();   // не сбиваем ввод названия
+}
+
+$('resetDay').onclick=()=>{if(S&&confirm('Сбросить отметки за '+DF[day]+'?'))resetDay()};
+$('clearAll').onclick=()=>{if(S&&confirm('Очистить ВСЮ текущую неделю?'))setDoc(REF,fresh(S.weekId)).catch(fail)};
+</script>
+</body>
+</html>
