@@ -47,6 +47,7 @@ h2{font-size:1rem;margin:4px 12px 8px}
 .pc{margin:0 12px 12px;border:1px solid #e3e8ee;border-radius:18px;overflow:hidden}
 .pc>div:first-child{background:#f1f5f9;padding:10px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .pc input{flex:1;min-width:140px;padding:8px 12px;border-radius:40px;border:1px solid #cbd5e1;font-size:.9rem}
+.pc b{white-space:nowrap}
 .pc .grp{padding:10px 12px}
 .pc .grp+.grp{padding-top:0}
 .legend{padding:12px;background:#f9fbfd;border-top:1px solid #e4e9f0;font-size:.85rem;text-align:center;color:#40526b}
@@ -196,7 +197,7 @@ function renderPairs(){
         onclick:()=>tap(i,p)},short(STUDENTS[i])))));
     const inp=h('input',{type:'text',maxlength:'60',placeholder:'Название предмета','aria-label':(p+1)+' пара, название',value:S.sub[day+'_'+p]||''});
     inp.onchange=()=>updateDoc(REF,{['sub.'+day+'_'+p]:inp.value}).catch(fail);
-    return h('div',{class:'pc'},h('div',{},h('b',{},(p+1)+' пара'),inp,h('button',{type:'button',class:'allbtn',onclick:()=>allPresent(p)},'Все были')),grp('p','Были',g.p),grp('e','Уважительная причина',g.e),grp('a','Не были',g.a));
+    return h('div',{class:'pc'},h('div',{},h('b',{},(p+1)+' пара · '+dateOf(day)),inp,h('button',{type:'button',class:'allbtn',onclick:()=>allPresent(p)},'Все были')),grp('p','Были',g.p),grp('e','Уважительная причина',g.e),grp('a','Не были',g.a));
   }));
 }
 function render(){
