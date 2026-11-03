@@ -25,6 +25,8 @@ button:focus-visible,input:focus-visible{outline:3px solid #e0a100;outline-offse
 .tags{display:flex;flex-wrap:wrap;gap:6px}
 .tag{background:#fff;border:1px solid #d5dbe3;border-radius:40px;padding:4px 11px;font-size:.85rem}
 .none{color:#6b7a8a;font-size:.85rem}
+.ro .mode,.ro .edit,.ro .allbtn{display:none}
+.ro .tagbtn{cursor:default}
 .mode{position:sticky;top:env(safe-area-inset-top,0px);z-index:3;background:#fff;padding:10px 12px;display:flex;gap:8px;border-bottom:1px solid #e4e9f0;box-shadow:0 2px 6px rgba(0,0,0,.06)}
 .mode button{flex:1;padding:11px 6px;border-radius:40px;border:2px solid #cbd5e1;background:#f1f5f9;font-weight:600;font-size:.9rem}
 .mode button[aria-pressed="true"].p{background:#dcfce7;border-color:#2f9e5b;color:#14672f}
@@ -61,11 +63,11 @@ h2{font-size:1rem;margin:4px 12px 8px}
 </head>
 <body>
 <div class="app">
-  <header><h1>Журнал посещаемости</h1><p>Выберите режим, затем нажимайте на фамилии. Повторное нажатие снимает отметку</p></header>
+  <header><h1>Журнал посещаемости</h1><p id="hint"></p></header>
   <div class="days" id="days"></div>
   <div class="acts">
-    <button type="button" id="resetDay">Сбросить день</button>
-    <button type="button" class="danger" id="clearAll">Очистить неделю</button>
+    <button type="button" class="edit" id="resetDay">Сбросить день</button>
+    <button type="button" class="danger edit" id="clearAll">Очистить неделю</button>
     <button type="button" id="logout">Выйти</button>
   </div>
   <div class="mode" id="mode">
@@ -82,7 +84,7 @@ h2{font-size:1rem;margin:4px 12px 8px}
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, setDoc, updateDoc, onSnapshot, runTransaction, serverTimestamp, Timestamp }
+import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, runTransaction, serverTimestamp, Timestamp }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
@@ -110,7 +112,7 @@ LBL={p:'Был',a:'Не был',e:'Уваж.'},NEXT={a:'p',p:'e',e:'a'},PAIRS=4;
 
 const app=initializeApp(firebaseConfig),db=getFirestore(app),auth=getAuth(app);
 const REF=doc(db,'journal','main');
-let S=null,day='mon',unsub=null,rolling=false,mode='p';
+let S=null,day='mon',unsub=null,rolling=false,mode='p',role=null;
 
 const $=id=>document.getElementById(id);
 const h=(t,a={},...k)=>{const e=document.createElement(t);for(const[n,v]of Object.entries(a)){if(n==='class')e.className=v;else if(n.startsWith('on'))e[n]=v;else e.setAttribute(n,v)}e.append(...k.flat());return e};
@@ -129,23 +131,28 @@ $('lf').onsubmit=async e=>{
   catch(x){$('err').textContent=x.code==='auth/too-many-requests'?'Слишком много попыток, подождите':'Неверная почта или пароль'}
 };
 $('logout').onclick=()=>signOut(auth);
-onAuthStateChanged(auth,u=>{
+onAuthStateChanged(auth,async u=>{
   if(unsub){unsub();unsub=null}
-  S=null;
+  S=null;role=null;
   if(!u){$('login').style.display='flex';return}
   $('login').style.display='none';status('Загрузка…');
+  try{const rs=await getDoc(doc(db,'roles',(u.email||'').toLowerCase()));role=rs.exists()?rs.data().role:null}catch(e){role=null}
+  if(role!=='root'&&role!=='viewer'){await signOut(auth);$('err').textContent='Для этой почты нет доступа';return}
+  document.body.classList.toggle('ro',role!=='root');
+  $('hint').textContent=role==='root'?'Выберите режим, затем нажимайте на фамилии. Повторное нажатие снимает отметку':'Режим просмотра: изменять отметки нельзя';
   unsub=onSnapshot(REF,{includeMetadataChanges:true},snap=>{
-    if(!snap.exists()){setDoc(REF,fresh(weekId())).catch(fail);return}
+    if(!snap.exists()){if(role==='root')setDoc(REF,fresh(weekId())).catch(fail);else status('Журнал ещё не создан');return}
     S=snap.data();S.att=S.att||{};S.sub=S.sub||{};
     render();
     status(snap.metadata.hasPendingWrites?'Сохранение…':snap.metadata.fromCache?'Нет связи, показан кэш':'Синхронизировано');
-    rollover();
+    if(role==='root')rollover();
+    else if(S.weekId!==weekId())status('Показана прошлая неделя');
   },e=>{console.error(e);status('Нет доступа или связи')});
 });
 
 // ---- новая неделя: архив + чистый журнал одной транзакцией
 async function rollover(){
-  if(rolling||!S||S.weekId===weekId())return;
+  if(rolling||role!=='root'||!S||S.weekId===weekId())return;
   rolling=true;
   try{
     await runTransaction(db,async tx=>{
@@ -160,13 +167,13 @@ async function rollover(){
 }
 
 // ---- запись: только изменённое поле, чужие отметки не затираются
-function mark(i,p,v){updateDoc(REF,{['att.'+day+'_'+i+'_'+p]:v}).catch(fail)}
+function mark(i,p,v){if(role!=='root')return;updateDoc(REF,{['att.'+day+'_'+i+'_'+p]:v}).catch(fail)}
 function tap(i,p){mark(i,p,cell(i,p)===mode?'a':mode)}
-function allPresent(p){
+function allPresent(p){if(role!=='root')return;
   const o={};STUDENTS.forEach((f,i)=>{if(cell(i,p)==='a')o['att.'+day+'_'+i+'_'+p]='p'});
   if(Object.keys(o).length&&confirm('Отметить «был» всех, кто ещё не отмечен, на '+(p+1)+' паре?'))updateDoc(REF,o).catch(fail);
 }
-function resetDay(){const o={};for(let i=0;i<STUDENTS.length;i++)for(let p=0;p<PAIRS;p++)o['att.'+day+'_'+i+'_'+p]='a';updateDoc(REF,o).catch(fail)}
+function resetDay(){if(role!=='root')return;const o={};for(let i=0;i<STUDENTS.length;i++)for(let p=0;p<PAIRS;p++)o['att.'+day+'_'+i+'_'+p]='a';updateDoc(REF,o).catch(fail)}
 
 // ---- отрисовка
 function dateOf(d){const m=new Date(S.weekId+'T00:00:00');m.setDate(m.getDate()+DAYS.indexOf(d));return pad(m.getDate())+'.'+pad(m.getMonth()+1)}
@@ -192,10 +199,10 @@ function renderPairs(){
     const g={p:[],e:[],a:[]};
     STUDENTS.forEach((f,i)=>g[cell(i,p)].push(i));
     const grp=(c,t,l)=>h('div',{class:'grp'},h('div',{class:'none'},t+': '+l.length),
-      h('div',{class:'tags'},l.map(i=>h('button',{type:'button',class:'tag tagbtn '+c,
+      h('div',{class:'tags'},l.map(i=>h(role==='root'?'button':'span',role!=='root'?{class:'tag tagbtn '+c}:{type:'button',class:'tag tagbtn '+c,
         'aria-label':short(STUDENTS[i])+', '+(p+1)+' пара: '+LBL[c],
         onclick:()=>tap(i,p)},short(STUDENTS[i])))));
-    const inp=h('input',{type:'text',maxlength:'60',placeholder:'Название предмета','aria-label':(p+1)+' пара, название',value:S.sub[day+'_'+p]||''});
+    const inp=h('input',{type:'text',maxlength:'60',placeholder:'Название предмета',...(role==='root'?{}:{readonly:''}),'aria-label':(p+1)+' пара, название',value:S.sub[day+'_'+p]||''});
     inp.onchange=()=>updateDoc(REF,{['sub.'+day+'_'+p]:inp.value}).catch(fail);
     return h('div',{class:'pc'},h('div',{},h('b',{},(p+1)+' пара · '+dateOf(day)),inp,h('button',{type:'button',class:'allbtn',onclick:()=>allPresent(p)},'Все были')),grp('p','Были',g.p),grp('e','Уважительная причина',g.e),grp('a','Не были',g.a));
   }));
@@ -208,7 +215,7 @@ function render(){
 
 document.querySelectorAll('#mode button').forEach(b=>b.onclick=()=>{mode=b.dataset.m;document.querySelectorAll('#mode button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)))});
 $('resetDay').onclick=()=>{if(S&&confirm('Сбросить отметки за '+DF[day]+'?'))resetDay()};
-$('clearAll').onclick=()=>{if(S&&confirm('Очистить ВСЮ текущую неделю?'))setDoc(REF,fresh(S.weekId)).catch(fail)};
+$('clearAll').onclick=()=>{if(role==='root'&&S&&confirm('Очистить ВСЮ текущую неделю?'))setDoc(REF,fresh(S.weekId)).catch(fail)};
 </script>
 </body>
 </html>
