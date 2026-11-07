@@ -84,7 +84,7 @@ h2{font-size:1rem;margin:4px 12px 8px}
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, runTransaction, serverTimestamp, Timestamp }
+import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, runTransaction, serverTimestamp, Timestamp, writeBatch }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
@@ -160,20 +160,31 @@ async function rollover(){
       if(!d||d.weekId===weekId())return;
       if(Object.values(d.att||{}).some(v=>v!=='a'))
         tx.set(doc(db,'archives',d.weekId),{weekId:d.weekId,att:d.att,sub:d.sub||{},students:STUDENTS,
-          createdAt:serverTimestamp(),expireAt:Timestamp.fromMillis(Date.now()+365*864e5)});
+          createdAt:serverTimestamp(),expireAt:Timestamp.fromMillis(Date.now()+365*864e5)},{merge:true});
       tx.set(REF,fresh(weekId()));
     });
   }catch(e){console.error(e)}finally{rolling=false}
 }
 
 // ---- запись: только изменённое поле, чужие отметки не затираются
-function mark(i,p,v){if(role!=='root')return;updateDoc(REF,{['att.'+day+'_'+i+'_'+p]:v}).catch(fail)}
+// каждая отметка сразу пишется и в журнал, и в архив этой недели (одним атомарным батчем)
+function write(att,sub){
+  if(role!=='root'||!S)return;
+  const j={},a={weekId:S.weekId,students:STUDENTS,att:{},sub:{},updatedAt:serverTimestamp(),
+    expireAt:Timestamp.fromMillis(Date.now()+365*864e5)};
+  for(const[k,v]of Object.entries(att)){j['att.'+k]=v;a.att[k]=v}
+  for(const[k,v]of Object.entries(sub)){j['sub.'+k]=v;a.sub[k]=v}
+  const b=writeBatch(db);
+  b.update(REF,j);b.set(doc(db,'archives',S.weekId),a,{merge:true});
+  b.commit().catch(fail);
+}
+function mark(i,p,v){write({[day+'_'+i+'_'+p]:v},{})}
 function tap(i,p){mark(i,p,cell(i,p)===mode?'a':mode)}
 function allPresent(p){if(role!=='root')return;
-  const o={};STUDENTS.forEach((f,i)=>{if(cell(i,p)==='a')o['att.'+day+'_'+i+'_'+p]='p'});
-  if(Object.keys(o).length&&confirm('Отметить «был» всех, кто ещё не отмечен, на '+(p+1)+' паре?'))updateDoc(REF,o).catch(fail);
+  const o={};STUDENTS.forEach((f,i)=>{if(cell(i,p)==='a')o[day+'_'+i+'_'+p]='p'});
+  if(Object.keys(o).length&&confirm('Отметить «был» всех, кто ещё не отмечен, на '+(p+1)+' паре?'))write(o,{});
 }
-function resetDay(){if(role!=='root')return;const o={};for(let i=0;i<STUDENTS.length;i++)for(let p=0;p<PAIRS;p++)o['att.'+day+'_'+i+'_'+p]='a';updateDoc(REF,o).catch(fail)}
+function resetDay(){if(role!=='root')return;const o={};for(let i=0;i<STUDENTS.length;i++)for(let p=0;p<PAIRS;p++)o[day+'_'+i+'_'+p]='a';write(o,{})}
 
 // ---- отрисовка
 function dateOf(d){const m=new Date(S.weekId+'T00:00:00');m.setDate(m.getDate()+DAYS.indexOf(d));return pad(m.getDate())+'.'+pad(m.getMonth()+1)}
@@ -203,7 +214,7 @@ function renderPairs(){
         'aria-label':short(STUDENTS[i])+', '+(p+1)+' пара: '+LBL[c],
         onclick:()=>tap(i,p)},short(STUDENTS[i])))));
     const inp=h('input',{type:'text',maxlength:'60',placeholder:'Название предмета',...(role==='root'?{}:{readonly:''}),'aria-label':(p+1)+' пара, название',value:S.sub[day+'_'+p]||''});
-    inp.onchange=()=>updateDoc(REF,{['sub.'+day+'_'+p]:inp.value}).catch(fail);
+    inp.onchange=()=>write({},{[day+'_'+p]:inp.value});
     return h('div',{class:'pc'},h('div',{},h('b',{},(p+1)+' пара · '+dateOf(day)),inp,h('button',{type:'button',class:'allbtn',onclick:()=>allPresent(p)},'Все были')),grp('p','Были',g.p),grp('e','Уважительная причина',g.e),grp('a','Не были',g.a));
   }));
 }
@@ -215,7 +226,9 @@ function render(){
 
 document.querySelectorAll('#mode button').forEach(b=>b.onclick=()=>{mode=b.dataset.m;document.querySelectorAll('#mode button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)))});
 $('resetDay').onclick=()=>{if(S&&confirm('Сбросить отметки за '+DF[day]+'?'))resetDay()};
-$('clearAll').onclick=()=>{if(role==='root'&&S&&confirm('Очистить ВСЮ текущую неделю?'))setDoc(REF,fresh(S.weekId)).catch(fail)};
+$('clearAll').onclick=()=>{if(role==='root'&&S&&confirm('Очистить ВСЮ текущую неделю?')){const b=writeBatch(db);b.set(REF,fresh(S.weekId));
+  b.set(doc(db,'archives',S.weekId),{weekId:S.weekId,students:STUDENTS,att:{},sub:{},updatedAt:serverTimestamp(),expireAt:Timestamp.fromMillis(Date.now()+365*864e5)});
+  b.commit().catch(fail)}};
 </script>
 </body>
 </html>
